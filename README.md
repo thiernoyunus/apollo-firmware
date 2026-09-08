@@ -31,8 +31,9 @@ python3 scripts/monitor.py
 ```
 
 Open <http://localhost:8787/> to see the conversation, real audio frames that
-reached the playback path, microphone drops, and screen snapshots. Three-byte
-WebRTC keepalive packets are excluded from the audio count.
+reached the playback path, microphone drops, and screen snapshots. Logs are
+stored in `~/.apollo/apollo_live.log`, and three-byte WebRTC keepalive packets
+are excluded from the audio count.
 
 <!-- MARKDOWN LINKS & IMAGES -->
 [cpp-shield]: https://img.shields.io/badge/C++-00599C?style=for-the-badge&logo=cplusplus&logoColor=white

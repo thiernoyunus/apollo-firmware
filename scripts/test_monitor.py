@@ -13,6 +13,8 @@ def main():
             '\n'.join([
                 'I (1000) CodexVoice: received=243 bytes=3 rate=16000',
                 'I (1001) AudioService: played=1 peak=12000 backlog=17',
+                'I (1050) CodexVoice: received=243 rate=16000',
+                'I (1060) AudioService: peak= backlog=',
                 'I (1100) Application: << Keepalive reply',
                 'I (4000) CodexVoice: received=243 bytes=184 rate=16000',
                 'I (4001) AudioService: played=2 peak=12000 backlog=2',

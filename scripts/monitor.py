@@ -12,10 +12,17 @@ import urllib.request
 from pathlib import Path
 
 
-LOG = Path(os.environ.get('APOLLO_MONITOR_LOG', '/tmp/apollo_live.log'))
+DEFAULT_STATE_DIRECTORY = Path.home() / '.apollo'
+LOG = Path(
+    os.environ.get(
+        'APOLLO_MONITOR_LOG',
+        str(DEFAULT_STATE_DIRECTORY / 'apollo_live.log'),
+    )
+).expanduser()
 PORT = int(os.environ.get('APOLLO_MONITOR_PORT', '8787'))
 MCP_DEVICE = os.environ.get('APOLLO_MONITOR_DEVICE', 'desk')
 MIN_VOICE_AUDIO_BYTES = 4
+MAX_READ_BYTES = 2_000_000
 DEFAULT_SERVER_DIR = Path(__file__).resolve().parents[2] / 'apollo-server'
 APOLLO_SERVER_DIR = Path(os.environ.get('APOLLO_SERVER_DIR', DEFAULT_SERVER_DIR))
 STRIP = re.compile(r'\x1b\[[0-9;]*m')
@@ -52,44 +59,61 @@ def capture_screen():
     with SCREEN_LOCK:
         request_id = SCREEN_REQUEST_ID
         SCREEN_REQUEST_ID += 1
-        body = json.dumps({
-            'jsonrpc': '2.0',
-            'id': request_id,
-            'method': 'tools/call',
-            'params': {
-                'name': 'apollo_screen_snapshot',
-                'arguments': {'quality': 70},
-            },
-        }).encode()
-        request = urllib.request.Request(
-            screen_endpoint(),
-            data=body,
-            headers={
-                'Accept': 'application/json, text/event-stream',
-                'Authorization': 'Bearer ' + read_dev_var('DASHBOARD_SHARED_SECRET'),
-                'Content-Type': 'application/json',
-                'User-Agent': 'curl/8.7.1',
-            },
-            method='POST',
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=12) as response:
-                payload = json.loads(response.read())
-        except (OSError, json.JSONDecodeError) as error:
-            raise RuntimeError('Apollo screen is unavailable') from error
-        if 'error' in payload:
-            raise RuntimeError('Apollo screen request failed')
-        for item in payload.get('result', {}).get('content', []):
-            if item.get('type') == 'image' and item.get('data'):
-                return base64.b64decode(item['data'])
-        raise RuntimeError('Apollo returned no screen frame')
+    body = json.dumps({
+        'jsonrpc': '2.0',
+        'id': request_id,
+        'method': 'tools/call',
+        'params': {
+            'name': 'apollo_screen_snapshot',
+            'arguments': {'quality': 70},
+        },
+    }).encode()
+    request = urllib.request.Request(
+        screen_endpoint(),
+        data=body,
+        headers={
+            'Accept': 'application/json, text/event-stream',
+            'Authorization': 'Bearer ' + read_dev_var('DASHBOARD_SHARED_SECRET'),
+            'Content-Type': 'application/json',
+            'User-Agent': 'curl/8.7.1',
+        },
+        method='POST',
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=12) as response:
+            payload = json.loads(response.read())
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError('Apollo screen is unavailable') from error
+    if 'error' in payload:
+        raise RuntimeError('Apollo screen request failed')
+    for item in payload.get('result', {}).get('content', []):
+        if item.get('type') == 'image' and item.get('data'):
+            return base64.b64decode(item['data'])
+    raise RuntimeError('Apollo returned no screen frame')
+
+
+def number(pattern, line):
+    match = re.search(pattern, line)
+    return int(match.group(1)) if match else None
+
+
+def read_log_lines():
+    if LOG.is_symlink():
+        return []
+    try:
+        with LOG.open('rb') as log_file:
+            log_file.seek(0, os.SEEK_END)
+            start = max(0, log_file.tell() - MAX_READ_BYTES)
+            log_file.seek(start)
+            if start:
+                log_file.readline()
+            return log_file.read().decode('utf-8', 'ignore').splitlines()
+    except OSError:
+        return []
 
 
 def read_events():
-    try:
-        lines = [STRIP.sub('', line).rstrip() for line in LOG.open(errors='ignore')]
-    except OSError:
-        return []
+    lines = [STRIP.sub('', line).rstrip() for line in read_log_lines()]
 
     start, previous_timestamp = 0, None
     for index, line in enumerate(lines):
@@ -107,17 +131,20 @@ def read_events():
         if not match:
             continue
         timestamp = int(match.group(1))
-        if 'played=' in line:
-            event_list.append((timestamp, 'played', int(re.search(r'played=(\d+)', line).group(1))))
-        if 'peak=' in line:
-            event_list.append((timestamp, 'peak', int(re.search(r'peak=(\d+)', line).group(1))))
-        if 'received=' in line:
-            received_bytes = int(re.search(r'bytes=(\d+)', line).group(1))
+        played = number(r'played=(\d+)', line)
+        if played is not None:
+            event_list.append((timestamp, 'played', played))
+        peak = number(r'peak=(\d+)', line)
+        if peak is not None:
+            event_list.append((timestamp, 'peak', peak))
+        received_bytes = number(r'bytes=(\d+)', line) if 'received=' in line else None
+        if received_bytes is not None:
             event_list.append((timestamp, 'rx', received_bytes))
             if received_bytes >= MIN_VOICE_AUDIO_BYTES:
                 event_list.append((timestamp, 'audio_rx', received_bytes))
-        if 'backlog=' in line:
-            event_list.append((timestamp, 'backlog', int(re.search(r'backlog=(\d+)', line).group(1))))
+        backlog = number(r'backlog=(\d+)', line)
+        if backlog is not None:
+            event_list.append((timestamp, 'backlog', backlog))
         if '<< ' in line:
             event_list.append((timestamp, 'reply', line.split('<< ', 1)[1]))
         if '>> ' in line:
