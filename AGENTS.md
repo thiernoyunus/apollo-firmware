@@ -6,6 +6,12 @@ Apollo's firmware — a hard fork of XiaoZhi (78/xiaozhi-esp32), reduced to exac
 
 Use ESP-IDF v6.0.2.
 
+This active workspace builds only real Codex Voice/WebRTC with the Codex orb.
+Never build or flash Classic/eyes firmware here. The user's separate backup is
+the recovery copy. Before flashing, verify the generated config enables
+APOLLO_CODEX_VOICE and USE_DEFAULT_MESSAGE_STYLE, and the linked image contains
+LcdDisplay::RenderVoiceOrb and CodexVoiceProtocol, not EmoteDisplay.
+
 ## Architecture
 
 - `main/application.*`: main event loop, protocol lifecycle, and high-level behavior.
@@ -13,8 +19,10 @@ Use ESP-IDF v6.0.2.
 - `main/boards/common/`: board interfaces and the hardware helpers the 1.85C uses.
 - `main/boards/waveshare/esp32-s3-touch-lcd-1.85c/`: pins, panel, touch task, board assets.
 - `main/audio/`: audio service, codecs, wake word (runs on the raw mic here), queues.
-- `main/protocols/apollo_protocol.*`: the only protocol. The server contract lives in the main repo.
-- `main/display/emote_display.*`: emote-engine face and accent ring.
+- `main/protocols/codex_voice_protocol.*`: the realtime WebRTC voice client this workspace builds.
+- `main/protocols/apollo_protocol.*`: the Classic request/response protocol, kept for the backup build only.
+- `main/display/lcd_display.*` and `main/display/watch_ui.*`: the round watch UI and voice orb.
+- `main/display/emote_display.*`: Classic emote face; not built here.
 - `main/mcp_server.*`: device-side MCP tools and dispatch (not yet wired to Apollo).
 - `main/Kconfig.projbuild` / `main/CMakeLists.txt`: trimmed to the single board and es-ES/en-US.
 - `scripts/build.py`: canonical build entry point.

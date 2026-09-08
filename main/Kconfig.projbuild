@@ -40,6 +40,15 @@ config APOLLO_DEVICE_ID
         Agent instance name, which is also the conversation the device joins.
         Falls back to the MAC address when left empty.
 
+config APOLLO_CODEX_VOICE
+    bool
+    depends on APOLLO_PROTOCOL && IDF_TARGET_ESP32S3
+    default y
+    help
+        Replaces Apollo's Soniox audio path with a direct WebRTC voice call
+        created through the logged-in Codex bridge, with the Codex orb display.
+        This workspace builds only Codex Voice. Classic lives in its backup.
+
 config APOLLO_NTP_SERVER
     string "NTP server"
     depends on APOLLO_PROTOCOL
@@ -58,6 +67,7 @@ config APOLLO_TIMEZONE
 
 config APOLLO_RAW_PCM_UPLINK
     bool "Send microphone audio as raw PCM instead of Opus"
+    depends on !APOLLO_CODEX_VOICE
     default y if APOLLO_PROTOCOL
     default n
     help
@@ -145,10 +155,11 @@ choice DISPLAY_STYLE
 
     config USE_WECHAT_MESSAGE_STYLE
         bool "Enable WeChat Message Style"
+        depends on !APOLLO_CODEX_VOICE
 
     config USE_EMOTE_MESSAGE_STYLE
         bool "Emote animation style"
-        depends on BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_85C
+        depends on BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_85C && !APOLLO_CODEX_VOICE
 endchoice
 
 config USE_MULTILINE_CHAT_MESSAGE
