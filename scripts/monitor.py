@@ -19,10 +19,12 @@ LOG = Path(
         str(DEFAULT_STATE_DIRECTORY / 'apollo_live.log'),
     )
 ).expanduser()
+ROTATED_LOG = LOG.with_name(LOG.name + '.1')
 PORT = int(os.environ.get('APOLLO_MONITOR_PORT', '8787'))
 MCP_DEVICE = os.environ.get('APOLLO_MONITOR_DEVICE', 'desk')
 MIN_VOICE_AUDIO_BYTES = 4
 MAX_READ_BYTES = 2_000_000
+TIMESTAMP_ROLLBACK_TOLERANCE_MS = 100
 DEFAULT_SERVER_DIR = Path(__file__).resolve().parents[2] / 'apollo-server'
 APOLLO_SERVER_DIR = Path(os.environ.get('APOLLO_SERVER_DIR', DEFAULT_SERVER_DIR))
 STRIP = re.compile(r'\x1b\[[0-9;]*m')
@@ -97,19 +99,31 @@ def number(pattern, line):
     return int(match.group(1)) if match else None
 
 
-def read_log_lines():
-    if LOG.is_symlink():
-        return []
+def read_log_tail(path, max_bytes):
+    if path.is_symlink():
+        return b''
     try:
-        with LOG.open('rb') as log_file:
+        with path.open('rb') as log_file:
             log_file.seek(0, os.SEEK_END)
-            start = max(0, log_file.tell() - MAX_READ_BYTES)
+            start = max(0, log_file.tell() - max_bytes)
             log_file.seek(start)
             if start:
                 log_file.readline()
-            return log_file.read().decode('utf-8', 'ignore').splitlines()
+            return log_file.read()
     except OSError:
+        return b''
+
+
+def read_log_lines():
+    log_chunk_list = [
+        chunk
+        for path in (ROTATED_LOG, LOG)
+        if (chunk := read_log_tail(path, MAX_READ_BYTES // 2))
+    ]
+    log_bytes = b'\n'.join(log_chunk_list)
+    if not log_bytes:
         return []
+    return log_bytes.decode('utf-8', 'ignore').splitlines()
 
 
 def read_events():
@@ -121,11 +135,16 @@ def read_events():
         if not match:
             continue
         timestamp = int(match.group(1))
-        if previous_timestamp is not None and timestamp < previous_timestamp - 100_000:
+        if (
+            previous_timestamp is not None
+            and timestamp < previous_timestamp - TIMESTAMP_ROLLBACK_TOLERANCE_MS
+        ):
             start = index
         previous_timestamp = timestamp
 
     event_list = []
+    last_audio_frames = None
+    last_received_frames = None
     for line in lines[start:]:
         match = TS.search(line)
         if not match:
@@ -137,11 +156,30 @@ def read_events():
         peak = number(r'peak=(\d+)', line)
         if peak is not None:
             event_list.append((timestamp, 'peak', peak))
-        received_bytes = number(r'bytes=(\d+)', line) if 'received=' in line else None
-        if received_bytes is not None:
-            event_list.append((timestamp, 'rx', received_bytes))
-            if received_bytes >= MIN_VOICE_AUDIO_BYTES:
-                event_list.append((timestamp, 'audio_rx', received_bytes))
+        audio_total = number(r'audio_frames=(\d+)', line)
+        received_total = number(r'received=(\d+)', line)
+        received_bytes = number(r'bytes=(\d+)', line) if received_total is not None else None
+        if audio_total is not None:
+            audio_delta = (
+                audio_total
+                if last_audio_frames is None or audio_total < last_audio_frames
+                else audio_total - last_audio_frames
+            )
+            last_audio_frames = audio_total
+            last_received_frames = None
+            event_list.append((timestamp, 'rx', audio_delta))
+            if audio_delta > 0:
+                event_list.append((timestamp, 'audio_rx', audio_delta))
+        elif received_total is not None and received_bytes is not None:
+            received_delta = (
+                received_total
+                if last_received_frames is None or received_total < last_received_frames
+                else received_total - last_received_frames
+            )
+            last_received_frames = received_total
+            event_list.append((timestamp, 'rx', received_delta))
+            if received_bytes >= MIN_VOICE_AUDIO_BYTES and received_delta > 0:
+                event_list.append((timestamp, 'audio_rx', received_delta))
         backlog = number(r'backlog=(\d+)', line)
         if backlog is not None:
             event_list.append((timestamp, 'backlog', backlog))
@@ -163,15 +201,16 @@ def build():
     for index, (timestamp, _, text) in enumerate(replies):
         start = replies[index - 1][0] if index else timestamp - 15_000
         window = [event for event in event_list if start < event[0] <= timestamp + 1_500]
-        audio_frames = [size for _, kind, size in window if kind == 'audio_rx']
+        audio_frame_values = [size for _, kind, size in window if kind == 'audio_rx']
+        audio_frame_count = sum(audio_frame_values)
         loud_peaks = [peak for _, kind, peak in window if kind == 'peak' and peak > 500]
         turns.append({
             't': timestamp,
             'text': text.strip(),
-            'spoken': bool(audio_frames),
-            'audio_frames': len(audio_frames),
-            'bursts': len(loud_peaks) if audio_frames else 0,
-            'peak': max(loud_peaks) if audio_frames and loud_peaks else 0,
+            'spoken': audio_frame_count > 0,
+            'audio_frames': audio_frame_count,
+            'bursts': len(loud_peaks) if audio_frame_count else 0,
+            'peak': max(loud_peaks) if audio_frame_count and loud_peaks else 0,
         })
 
     first_audio = next((timestamp for timestamp, kind, _ in event_list if kind == 'audio_rx'), None)
@@ -209,7 +248,7 @@ def build():
             if kind == 'recovered'
         ],
         'stats': {
-            'audio_frames': sum(1 for _, kind, _ in event_list if kind == 'audio_rx'),
+            'audio_frames': sum(size for _, kind, size in event_list if kind == 'audio_rx'),
             'mic_drops': sum(1 for _, kind, _ in event_list if kind == 'micdrop'),
             'max_backlog': max(backlog) if backlog else 0,
             'silent': sum(1 for turn in turns if not turn['spoken']),

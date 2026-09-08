@@ -68,9 +68,8 @@ def rotate_log(log_file):
 def main():
     log_file = open_log()
     with log_file:
-        deadline = time.time() + 86_400
         connection = None
-        while time.time() < deadline:
+        while True:
             if connection is None:
                 try:
                     connection = serial.Serial(DEVICE, 115200, timeout=1)
