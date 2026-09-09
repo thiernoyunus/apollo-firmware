@@ -531,10 +531,9 @@ void CodexVoiceProtocol::HandleSignal(const char* data, size_t size) {
             }
             ESP_LOGI(TAG, "%s transcript complete", role->valuestring);
             if (strcmp(role->valuestring, "assistant") == 0) {
-                // The reply is finished. Whatever audio was coming has either
-                // arrived or never will, and a completed turn must not leave
-                // the stall check armed against the next silence.
-                speech_expected_since_ms_.store(0);
+                // Do not disarm the audio stall check here. The transcript can
+                // finish before the corresponding audio arrives, especially
+                // for a short reply. Real audio clears the check instead.
                 StopSpeaking();
             }
         }
@@ -672,7 +671,7 @@ void CodexVoiceProtocol::CheckInboundAudioStall() {
     // was expected and no audio frame has arrived for several seconds, the
     // track is not going to recover on its own: fail the call so the normal
     // reconnect path rebuilds it.
-    const uint32_t expecting = speech_expected_since_ms_.load();
+    uint32_t expecting = speech_expected_since_ms_.load();
     if (expecting == 0 || closing_ || !IsAudioChannelOpened()) {
         return;
     }
@@ -682,7 +681,11 @@ void CodexVoiceProtocol::CheckInboundAudioStall() {
     if (now - quiet_since < kInboundAudioStallMs) {
         return;
     }
-    speech_expected_since_ms_.store(0);
+    // A real frame can arrive between the timeout check and this point. Only
+    // the caller that armed this check may consume it and trigger recovery.
+    if (!speech_expected_since_ms_.compare_exchange_strong(expecting, 0)) {
+        return;
+    }
     ESP_LOGE(TAG, "No reply audio for %lu ms; restarting the voice call",
              (unsigned long)(now - quiet_since));
     Fail("Apollo's voice stopped coming through. Reconnecting.");
@@ -739,9 +742,9 @@ int CodexVoiceProtocol::OnPeerAudio(esp_peer_audio_frame_t* frame, void* context
     ++received_frames;
     if (is_real_audio) {
         ++real_audio_frames;
+        protocol->last_audio_frame_ms_.store(now);
+        protocol->speech_expected_since_ms_.store(0);
     }
-    protocol->last_audio_frame_ms_.store(now);
-    protocol->speech_expected_since_ms_.store(0);
     if (now - last_audio_log >= 1000 || new_audio_burst ||
         (is_real_audio && now - previous_audio_frame_ms >= kAudioLogBurstGapMs)) {
         last_audio_log = now;

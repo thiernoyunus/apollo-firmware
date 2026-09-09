@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guard the realtime playback budget.
+"""Guard the realtime playback budget and inbound-audio recovery.
 
 Silent replies came from the speaker draining faster than the codec task
 refilled it: the decode queue backed up to its cap and live speech was
@@ -18,6 +18,7 @@ def read(path):
 def main():
     header = read("main/audio/audio_service.h")
     service = read("main/audio/audio_service.cc")
+    protocol = read("main/protocols/codex_voice_protocol.cc")
 
     playback = int(re.search(r"#define MAX_PLAYBACK_TASKS_IN_QUEUE (\d+)", header).group(1))
     encode = int(re.search(r"#define MAX_ENCODE_TASKS_IN_QUEUE (\d+)", header).group(1))
@@ -47,6 +48,36 @@ def main():
     # Decode feeds playback. If the codec task cannot preempt the output task,
     # the buffer drains to empty and the speaker goes silent mid-reply.
     assert codec > output, f"opus_codec priority {codec} must exceed audio_output {output}"
+
+    on_peer_audio = protocol.split(
+        "int CodexVoiceProtocol::OnPeerAudio", 1)[1].split(
+        "int CodexVoiceProtocol::OnDataChannelOpen", 1)[0]
+    assert re.search(
+        r"if \(is_real_audio\) \{\s*"
+        r"\+\+real_audio_frames;\s*"
+        r"protocol->last_audio_frame_ms_\.store\(now\);\s*"
+        r"protocol->speech_expected_since_ms_\.store\(0\);",
+        on_peer_audio,
+        re.S,
+    ), "only real audio may satisfy the inbound-audio watchdog"
+
+    assistant_done = re.search(
+        r'if \(strcmp\(role->valuestring, "assistant"\) == 0\) \{'
+        r"(?P<body>.*?)\n\s*StopSpeaking\(\);",
+        protocol,
+        re.S,
+    )
+    assert assistant_done, "assistant transcript completion path is missing"
+    assert "speech_expected_since_ms_.store(0)" not in assistant_done.group("body"), (
+        "transcript completion must not cancel audio recovery before audio arrives"
+    )
+
+    watchdog = protocol.split(
+        "void CodexVoiceProtocol::CheckInboundAudioStall()", 1)[1].split(
+        "int CodexVoiceProtocol::OnPeerState", 1)[0]
+    assert "compare_exchange_strong(expecting, 0)" in watchdog, (
+        "audio recovery must ignore a timeout raced by a real frame"
+    )
 
     print(f"playback {playback * frame_ms} ms, microphone {encode * frame_ms} ms, "
           f"opus_codec={codec} > audio_output={output}")
