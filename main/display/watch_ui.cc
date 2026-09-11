@@ -1,5 +1,6 @@
 #include "watch_ui.h"
 #include "watch_icons.h"
+#include "watch_dotmatrix.h"   /* the app-pixels look; the ChatGPT pages are moving to it */
 #include <algorithm>
 #include <cctype>
 #include <cmath>
