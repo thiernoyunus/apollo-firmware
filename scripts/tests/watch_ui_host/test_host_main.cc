@@ -155,6 +155,9 @@ int main() {
     info.networks = {"HomeWifi", "OfficeNet", "GuestNet"};
     info.saved_networks = {"HomeWifi"};
     info.models = {"gpt-4o", "gpt-4o-mini", "o1-mini"};
+    // Reasoning and Chats render a picker only when there is something to pick.
+    info.reasoning = "Medium";
+    info.chats = {"Trip planning", "Firmware notes"};
     ui.SetInfo(info);
     const uint32_t base_screen_count = screen_count();
 
@@ -172,9 +175,27 @@ int main() {
         {WatchUi::Page::CodexSettings, "chatgpt"},
         {WatchUi::Page::Shapes, "shapes"},
         {WatchUi::Page::Colours, "colours"},
+        {WatchUi::Page::Sleep, "sleep"},
+        {WatchUi::Page::Reasoning, "reasoning"},
+        {WatchUi::Page::Chats, "chats"},
+        {WatchUi::Page::Approvals, "approvals"},
+        {WatchUi::Page::WifiSetup, "wifisetup"},
     };
     for (auto& pt : pages) { ui.Show(pt.p); tick_lv(); snap(pt.n); }
     check(screen_count() == base_screen_count, "Pages keep LVGL screen count");
+
+    // The notice banner floats over whichever page is open rather than being a
+    // page of its own, so it is rendered here over Settings and then cleared -
+    // anything left on screen would show up in the nav-stability count below.
+    {
+        const char* kNotice = "Wi-Fi lost. Reconnecting.";
+        ui.Show(WatchUi::Page::Settings); tick_lv();
+        info.notice = kNotice; ui.SetInfo(info); tick_lv();
+        check(find_label(lv_screen_active(), kNotice) != nullptr, "Notice banner appears");
+        snap("notice");
+        info.notice.clear(); ui.SetInfo(info); tick_lv();
+        check(find_label(lv_screen_active(), kNotice) == nullptr, "Notice banner clears");
+    }
 
     ui.Show(WatchUi::Page::Brightness); tick_lv();
     // Rows in the app-pixels pages are canvases, not labels, so they cannot be
