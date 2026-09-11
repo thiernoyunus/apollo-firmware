@@ -163,6 +163,11 @@ void bloub_draw_face(uint16_t* buf, int w, int h, const bloub_face_cfg_t* f, uin
     bloub_eye_t pose[2];
     bloub_eye_poses(*f->gaze, f->scale, f->split, pose);
     for (int e = 0; e < 2; e++) {
+        /* An eye that has gone round the back of the sphere is not drawn. It
+         * only matters once the gaze swings far - at rest both eyes face the
+         * viewer - but without it a big turn punches the far eye back through
+         * the front of the head. */
+        if (pose[e].depth <= 0.02f) continue;
         bloub_punch_eye_posed(buf, w, h, f->cx + pose[e].x * f->sx,
                               f->cy + pose[e].y * f->sy,
                               f->eyes[e].w * 0.5f * f->scale,
