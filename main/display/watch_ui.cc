@@ -200,7 +200,7 @@ void WatchUi::Show(Page page) {
     // character, and the keyboard and Wi-Fi setup bring their own layout.
     switch(page){
     case Page::Home: case Page::Voice: case Page::Keyboard: case Page::WifiSetup:
-    case Page::Sleep: case Page::Brightness: case Page::About: case Page::Wifi:
+    case Page::Sleep:
         dot_style_=false;break;
     default: dot_style_=true;break;
     }
@@ -328,7 +328,7 @@ void WatchUi::Show(Page page) {
         auto l=Label(shell_,info_.connected?"Wi-Fi connected":"Waiting for Wi-Fi",220);lv_obj_set_style_text_align(l,LV_TEXT_ALIGN_CENTER,0);lv_obj_align(l,LV_ALIGN_CENTER,0,80);break;
     }
     case Page::About:{
-        Header("About Apollo",Page::Home);Column();
+        Header("About Apollo",Page::Settings);Column();
         Row("Firmware",info_.version.c_str(),&watch_icons::info,{});
         Row("Voice","Codex Voice / WebRTC",&watch_icons::mic,{});
         std::string battery=info_.battery<0?"Not available":std::to_string(info_.battery)+"%"+(info_.charging?" - charging":"");

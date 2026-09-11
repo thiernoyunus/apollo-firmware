@@ -1092,8 +1092,8 @@ void LcdDisplay::SetupUI() {
 
 #ifdef CONFIG_APOLLO_CODEX_VOICE
     // Keep text inside the circle, away from the clipped top and bottom edges.
-    lv_obj_set_style_bg_color(screen, lv_color_hex(0x0C1220), 0);
-    lv_obj_set_style_bg_color(container_, lv_color_hex(0x0C1220), 0);
+    lv_obj_set_style_bg_color(screen, lv_color_black(), 0);
+    lv_obj_set_style_bg_color(container_, lv_color_black(), 0);
     lv_obj_remove_flag(container_, static_cast<lv_obj_flag_t>(LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE));
     lv_obj_set_style_text_color(status_label_, lv_color_white(), 0);
     lv_obj_set_style_text_color(notification_label_, lv_color_white(), 0);
@@ -1138,12 +1138,14 @@ void LcdDisplay::SetupUI() {
     lv_obj_add_flag(emoji_label_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_size(emoji_box_, voice_geometry::kOrbSize, voice_geometry::kOrbSize);
     lv_obj_align(emoji_box_, LV_ALIGN_CENTER, 0, 4);
-    lv_obj_set_style_radius(emoji_box_, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_clip_corner(emoji_box_, true, 0);
-    lv_obj_set_style_bg_opa(emoji_box_, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(emoji_box_, lv_color_hex(0x7465EB), 0);
-    lv_obj_set_style_bg_grad_color(emoji_box_, lv_color_hex(0xD9EFFF), 0);
-    lv_obj_set_style_bg_grad_dir(emoji_box_, LV_GRAD_DIR_VER, 0);
+    lv_obj_set_style_radius(emoji_box_, 0, 0);
+    lv_obj_set_style_clip_corner(emoji_box_, false, 0);
+    lv_obj_set_style_bg_opa(emoji_box_, LV_OPA_TRANSP, 0);
+    /* The canvas and screen share one black field, so the character appears
+     * directly on the page without the old orb silhouette behind it. */
+    lv_obj_set_style_bg_color(emoji_box_, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_grad_color(emoji_box_, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_grad_dir(emoji_box_, LV_GRAD_DIR_NONE, 0);
 
     const size_t orb_buffer_size = static_cast<size_t>(voice_geometry::kOrbSize) *
                                    voice_geometry::kOrbSize * sizeof(lv_color16_t);
@@ -1160,9 +1162,11 @@ void LcdDisplay::SetupUI() {
                                  voice_geometry::kOrbSize, LV_COLOR_FORMAT_RGB565);
             lv_obj_set_size(voice_orb_canvas_, voice_geometry::kOrbSize, voice_geometry::kOrbSize);
             lv_obj_align(voice_orb_canvas_, LV_ALIGN_CENTER, 0, 0);
-            lv_obj_set_style_radius(voice_orb_canvas_, LV_RADIUS_CIRCLE, 0);
-            lv_obj_set_style_clip_corner(voice_orb_canvas_, true, 0);
-            lv_obj_set_style_image_opa(voice_orb_canvas_, LV_OPA_50, 0);
+            lv_obj_set_style_radius(voice_orb_canvas_, 0, 0);
+            lv_obj_set_style_clip_corner(voice_orb_canvas_, false, 0);
+            /* Opaque. The orb could afford to be half-transparent over its own
+             * gradient; a face cannot - it was coming out washed out. */
+            lv_obj_set_style_image_opa(voice_orb_canvas_, LV_OPA_COVER, 0);
             lv_obj_remove_flag(voice_orb_canvas_, LV_OBJ_FLAG_SCROLLABLE);
             RenderVoiceOrb(0.0f);
             voice_orb_timer_ = lv_timer_create(
@@ -1568,8 +1572,7 @@ void LcdDisplay::SetStatus(const char* status) {
     const bool was_orb_active = voice_orb_active_;
     voice_orb_color_ = orb_color;
     voice_orb_active_ = orb_active;
-    lv_obj_set_style_bg_opa(emoji_box_, orb_active ? LV_OPA_COVER : LV_OPA_50, 0);
-    lv_obj_set_style_bg_color(emoji_box_, lv_color_hex(orb_color), 0);
+    lv_obj_set_style_bg_opa(emoji_box_, LV_OPA_TRANSP, 0);
     if (orb_active) {
         if (!was_orb_active) voice_orb_started_at_ = lv_tick_get();
         if (voice_orb_timer_ != nullptr) lv_timer_resume(voice_orb_timer_);
