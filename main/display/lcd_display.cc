@@ -1277,7 +1277,7 @@ void LcdDisplay::SetupUI() {
         lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
         lv_obj_set_style_pad_all(b, 0, 0);
         lv_obj_set_style_border_width(b, 0, 0);
-        lv_obj_set_style_bg_color(b, lv_color_hex(0x181F2C), 0);
+        lv_obj_set_style_bg_color(b, lv_color_hex(0x1A1A1A), 0);
         lv_obj_remove_flag(b, LV_OBJ_FLAG_SCROLLABLE);
         auto icon = lv_image_create(b);
         lv_image_set_src(icon, i == 0 ? &watch_icons::back : &watch_icons::more);
@@ -1566,7 +1566,7 @@ void LcdDisplay::SetVoiceMicrophoneMuted(bool muted) {
         return;
     }
     lv_label_set_text(voice_mute_icon_, muted ? MATERIAL_SYMBOLS_MIC_OFF : MATERIAL_SYMBOLS_MIC);
-    lv_obj_set_style_bg_color(voice_mute_button_, lv_color_hex(muted ? 0xA52C3D : 0x292929), 0);
+    lv_obj_set_style_bg_color(voice_mute_button_, lv_color_hex(muted ? 0xA52C3D : 0x1A1A1A), 0);
     if (Application::GetInstance().GetDeviceState() == kDeviceStateListening) {
         const auto caption = CaptionForDeviceState(kDeviceStateListening, muted);
         UpdateVoiceStateCaption(caption.text, caption.color);
