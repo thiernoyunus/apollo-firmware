@@ -49,17 +49,41 @@ def main():
     # the buffer drains to empty and the speaker goes silent mid-reply.
     assert codec > output, f"opus_codec priority {codec} must exceed audio_output {output}"
 
+    assert re.search(
+        r"constexpr size_t kMinimumVoiceAudioBytes = 3;", protocol
+    ), "three-byte Opus packets must satisfy the inbound-audio threshold"
+
     on_peer_audio = protocol.split(
         "int CodexVoiceProtocol::OnPeerAudio", 1)[1].split(
         "int CodexVoiceProtocol::OnDataChannelOpen", 1)[0]
     assert re.search(
         r"if \(is_real_audio\) \{\s*"
         r"\+\+real_audio_frames;\s*"
-        r"protocol->last_audio_frame_ms_\.store\(now\);\s*"
-        r"protocol->speech_expected_since_ms_\.store\(0\);",
+        r"protocol->speech_expected_since_ms_\.store\(0\);\s*"
+        r"protocol->last_audio_frame_ms_\.store\(now\);",
         on_peer_audio,
         re.S,
-    ), "only real audio may satisfy the inbound-audio watchdog"
+    ), "real audio must invalidate the watchdog before publishing its timestamp"
+
+    start_speaking = protocol.split(
+        "void CodexVoiceProtocol::StartSpeaking()", 1)[1].split(
+        "void CodexVoiceProtocol::StopSpeaking()", 1)[0]
+    assert re.search(
+        r"if \(!speaking_\.exchange\(true\)\) \{\s*"
+        r"uint32_t expected = 0;\s*"
+        r"speech_expected_since_ms_\.compare_exchange_strong\(expected, NowMilliseconds\(\)\);",
+        start_speaking,
+        re.S,
+    ), "the watchdog must arm only when a new assistant reply starts"
+
+    assistant_delta = protocol.split(
+        'else if (strcmp(type->valuestring, "realtime_transcript_delta") == 0)', 1
+    )[1].split(
+        'else if (strcmp(type->valuestring, "realtime_transcript_done") == 0)', 1
+    )[0]
+    assert "speech_expected_since_ms_.compare_exchange_strong" not in assistant_delta, (
+        "later transcript deltas must not re-arm recovery after audio arrives"
+    )
 
     assistant_done = re.search(
         r'if \(strcmp\(role->valuestring, "assistant"\) == 0\) \{'

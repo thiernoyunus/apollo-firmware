@@ -34,7 +34,7 @@ uint32_t NowMilliseconds() { return static_cast<uint32_t>(esp_timer_get_time() /
 // ponytail: fixed threshold; revisit only if healthy calls trip it.
 constexpr uint32_t kInboundAudioStallMs = 4000;
 constexpr uint32_t kAudioLogBurstGapMs = 250;
-constexpr size_t kMinimumVoiceAudioBytes = 4;
+constexpr size_t kMinimumVoiceAudioBytes = 3;
 
 std::string BuildConnectionUrl(const std::string& base_url, const std::string& device_id,
                                const std::string& token) {
@@ -514,10 +514,8 @@ void CodexVoiceProtocol::HandleSignal(const char* data, size_t size) {
         const cJSON* delta = cJSON_GetObjectItemCaseSensitive(root, "delta");
         if (cJSON_IsString(role) && cJSON_IsString(delta) && delta->valuestring[0] != '\0' &&
             strcmp(role->valuestring, "assistant") == 0) {
-            // The assistant is producing a reply, so audio should follow. Arm
-            // the stall check unless audio is already flowing.
-            uint32_t expected = 0;
-            speech_expected_since_ms_.compare_exchange_strong(expected, NowMilliseconds());
+            // StartSpeaking arms the stall check once per reply. Later
+            // transcript deltas must not re-arm it after real audio clears it.
             StartSpeaking();
         }
     } else if (strcmp(type->valuestring, "realtime_transcript_done") == 0) {
@@ -601,6 +599,8 @@ void CodexVoiceProtocol::HandleRealtimeEvent(const uint8_t* data, size_t size) {
 
 void CodexVoiceProtocol::StartSpeaking() {
     if (!speaking_.exchange(true)) {
+        uint32_t expected = 0;
+        speech_expected_since_ms_.compare_exchange_strong(expected, NowMilliseconds());
         EmitSpeechEvent("start");
     }
 }
@@ -742,8 +742,8 @@ int CodexVoiceProtocol::OnPeerAudio(esp_peer_audio_frame_t* frame, void* context
     ++received_frames;
     if (is_real_audio) {
         ++real_audio_frames;
-        protocol->last_audio_frame_ms_.store(now);
         protocol->speech_expected_since_ms_.store(0);
+        protocol->last_audio_frame_ms_.store(now);
     }
     if (now - last_audio_log >= 1000 || new_audio_burst ||
         (is_real_audio && now - previous_audio_frame_ms >= kAudioLogBurstGapMs)) {
