@@ -1,5 +1,6 @@
 #include "lcd_display.h"
 #include "bloub/bloub_shapes.h"   /* the character */
+#include "voice_character.h"        /* the palette and counts it is worn in */
 #include "bloub/bloub_face.h"
 #include "assets/lang_config.h"
 #include "gif/lvgl_gif.h"
@@ -47,8 +48,9 @@ constexpr uint32_t kVoiceCyan = 0x2FD8E8;
 constexpr uint32_t kVoiceAmber = 0xF5A524;
 constexpr uint32_t kVoiceRed = 0xE5484D;
 constexpr uint32_t kVoiceGray = 0x8E8E93;
-constexpr uint32_t kVoiceBodyColors[]={0xF1EFE9,0xA3A3A3,0x8B5E3C,0xE8483F,0xF08A24,0xF0B429,
-                                       0x3ECF8E,0x2FBFA0,0x3B93F0,0x8B5CF6,0xE152B0};
+
+static_assert(voice_character::kShapeCount == static_cast<int>(SHAPE_COUNT),
+              "the picker's shape count and bloub's silhouette table have drifted apart");
 
 struct VoiceStateCaption {
     const char* text;
@@ -951,8 +953,10 @@ void LcdDisplay::SetupUI() {
     voice_root_ = lv_obj_create(lv_screen_active());
     {
         Settings character("display", false);
-        voice_shape_ = std::clamp<int32_t>(character.GetInt("voice_shape", 0), 0, SHAPE_COUNT - 1);
-        voice_colour_ = std::clamp<int32_t>(character.GetInt("voice_colour", 0), 0, 10);
+        voice_shape_ = std::clamp<int32_t>(character.GetInt("voice_shape", 0), 0,
+                                          voice_character::kShapeCount - 1);
+        voice_colour_ = std::clamp<int32_t>(character.GetInt("voice_colour", 0), 0,
+                                           voice_character::kColorCount - 1);
     }
     /* Black, like every other screen the character appears on. The voice screen
      * used to be navy, which left the character sitting in a black square on a
@@ -1575,8 +1579,8 @@ void LcdDisplay::SetVoiceMicrophoneMuted(bool muted) {
 
 void LcdDisplay::SetVoiceCharacter(int shape, int colour) {
     DisplayLockGuard lock(this);
-    voice_shape_ = std::clamp(shape, 0, static_cast<int>(SHAPE_COUNT) - 1);
-    voice_colour_ = std::clamp(colour, 0, 10);
+    voice_shape_ = std::clamp(shape, 0, voice_character::kShapeCount - 1);
+    voice_colour_ = std::clamp(colour, 0, voice_character::kColorCount - 1);
     RenderVoiceOrb(static_cast<float>(lv_tick_elaps(voice_orb_started_at_)) / 1000.0f);
 }
 
@@ -1664,7 +1668,7 @@ void LcdDisplay::RenderVoiceOrb(float seconds) {
      * White on black keeps both colours swap-invariant, so nothing here has to
      * care how the panel orders its 16-bit words. */
     const int size = voice_geometry::kOrbSize;
-    const uint16_t body = lv_color_to_u16(lv_color_hex(kVoiceBodyColors[voice_colour_]));
+    const uint16_t body = lv_color_to_u16(lv_color_hex(voice_character::kColors[voice_colour_]));
     const lv_color16_t bg{};
     const uint16_t back = *reinterpret_cast<const uint16_t*>(&bg);
 

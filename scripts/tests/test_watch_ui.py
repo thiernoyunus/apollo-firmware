@@ -46,6 +46,14 @@ EXPECTED_TAGS = {
     "keyboard_pass",
     "slider_50",
     "nav_stable",
+    # The pages the harness gained alongside these: every one it renders has to
+    # be listed, or the run fails on the set rather than on any one screenshot.
+    "sleep",
+    "reasoning",
+    "chats",
+    "approvals",
+    "wifisetup",
+    "notice",
 }
 
 

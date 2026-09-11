@@ -2,6 +2,7 @@
 #include "watch_icons.h"
 #include "watch_dotmatrix.h"   /* the app-pixels look; the ChatGPT pages are moving to it */
 #include "bloub/bloub_shapes.h"
+#include "voice_character.h"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -17,7 +18,11 @@ constexpr int kCenter = 180, kSafeR = 176;
 constexpr int kDotNav = 44;    // smallest comfortable touch target here
 constexpr int kDotRowH = 46;   // app-pixels list row
 constexpr const char* kShapeNames[]={"Circle","Pebble","Squircle","Capsule","Triangle","Hexagon","Cloud","Droplet"};
+static_assert(sizeof(kShapeNames)/sizeof(kShapeNames[0])==voice_character::kShapeCount,
+              "a silhouette has no name, or a name has no silhouette");
 constexpr const char* kColourNames[]={"Cream","Grey","Brown","Red","Orange","Amber","Green","Teal","Blue","Violet","Pink"};
+static_assert(sizeof(kColourNames)/sizeof(kColourNames[0])==voice_character::kColorCount,
+              "a colour has no name, or a name has no colour");
 /* Straight ahead and expressionless. bloub's NEUTRAL expression is the rest
  * gaze measured off the reference video - a three-quarter view - which at
  * preview size reads as looking off to one side and leaves only one eye
@@ -361,8 +366,8 @@ void WatchUi::Show(Page page) {
     }
     case Page::CodexSettings:
         Header("ChatGPT",Page::Voice);Column();
-        Row("Shape",kShapeNames[std::clamp(info_.shape,0,7)],nullptr,[this]{Show(Page::Shapes);});
-        Row("Colour",kColourNames[std::clamp(info_.colour,0,10)],nullptr,[this]{Show(Page::Colours);});
+        Row("Shape",kShapeNames[std::clamp(info_.shape,0,voice_character::kShapeCount-1)],nullptr,[this]{Show(Page::Shapes);});
+        Row("Colour",kColourNames[std::clamp(info_.colour,0,voice_character::kColorCount-1)],nullptr,[this]{Show(Page::Colours);});
         Row("Voice",info_.voice.empty()?"Default":info_.voice.c_str(),&watch_icons::mic,[this]{Show(Page::Voices);});
         Row("Model",info_.model.c_str(),&watch_icons::more,[this]{model_return_=Page::CodexSettings;Show(Page::Models);Emit(Action::Models);});
         Row("Chat",info_.temporary_chat?"Temporary":info_.chat.c_str(),&watch_icons::more,[this]{Show(Page::Chats);Emit(Action::Models);});
@@ -373,7 +378,7 @@ void WatchUi::Show(Page page) {
         // the circle; the rest stay reachable by swiping. No counter: the list
         // is short enough to see, and the number was just sitting in space.
         lv_obj_set_height(column_,208);
-        for(int i=0;i<8;++i){
+        for(int i=0;i<voice_character::kShapeCount;++i){
             Row(kShapeNames[i],info_.shape==i?"On":nullptr,nullptr,[this,i]{
                 info_.shape=i; Emit(Action::SelectShape,i); Show(Page::Shapes);
             });
@@ -394,12 +399,14 @@ void WatchUi::Show(Page page) {
     }
     case Page::Colours: {
         Header("Colour",Page::CodexSettings);
-        static const uint32_t colors[]={0xF1EFE9,0xA3A3A3,0x8B5E3C,0xE8483F,0xF08A24,0xF0B429,
-                                        0x3ECF8E,0x2FBFA0,0x3B93F0,0x8B5CF6,0xE152B0};
         const int row_n[]={3,4,4}, row_y[]={140,202,264}; int at=0;
+        // The rows have to account for every colour: one short and the last is
+        // unreachable, one over and this walks off the end of the palette.
+        static_assert(3+4+4==voice_character::kColorCount,
+                      "the colour grid's rows no longer add up to the palette");
         for(int row=0;row<3;++row) for(int col=0;col<row_n[row];++col,++at){
             const int cx=180+(col*54-(row_n[row]-1)*27);
-            auto swatch=Box(shell_,cx-23,row_y[row]-23,46,46,colors[at],12);
+            auto swatch=Box(shell_,cx-23,row_y[row]-23,46,46,voice_character::kColors[at],12);
             Click(swatch,[this,at]{info_.colour=at;Emit(Action::SelectColour,at);Show(Page::Colours);});
             if(info_.colour==at){
                 lv_obj_set_style_border_width(swatch,2,0);
