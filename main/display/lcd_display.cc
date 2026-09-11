@@ -1225,7 +1225,11 @@ void LcdDisplay::SetupUI() {
         lv_obj_set_pos(button, index == 0 ? voice_geometry::kMuteLeft : voice_geometry::kEndLeft,
                        voice_geometry::kButtonTop);
         lv_obj_set_style_radius(button, LV_RADIUS_CIRCLE, 0);
-        lv_obj_set_style_bg_color(button, lv_color_hex(0x292929), 0);
+        /* Mic and hang-up. The mic keeps the dark disc the user likes; hang-up
+         * is red, because it is the one control that ends something. Both use
+         * 0x1A1A1A rather than the old 0x292929 so they match the disc the
+         * back arrow and the three dots sit in. */
+        lv_obj_set_style_bg_color(button, lv_color_hex(index == 0 ? 0x1A1A1A : 0xE5484D), 0);
         lv_obj_set_style_border_width(button, 0, 0);
         lv_obj_set_style_pad_all(button, 0, 0);
         lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLLABLE);
@@ -1438,7 +1442,7 @@ void LcdDisplay::ShowVoiceModels(const std::vector<std::string>& names, size_t p
         lv_obj_set_pos(button, voice_geometry::kModelRowLeft,
                        voice_geometry::kModelRowTop + row * voice_geometry::kModelRowStep);
         lv_obj_set_size(button, voice_geometry::kModelRowWidth, voice_geometry::kModelRowHeight);
-        lv_obj_set_style_bg_color(button, lv_color_hex(0x292929), 0);
+        lv_obj_set_style_bg_color(button, lv_color_hex(0x1A1A1A), 0);
         lv_obj_set_style_border_width(button, 0, 0);
         lv_obj_set_style_pad_all(button, 0, 0);
         lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLLABLE);
@@ -1458,7 +1462,7 @@ void LcdDisplay::ShowVoiceModels(const std::vector<std::string>& names, size_t p
         lv_obj_set_style_radius(button, LV_RADIUS_CIRCLE, 0);
         lv_obj_set_style_pad_all(button, 0, 0);
         lv_obj_set_style_border_width(button, 0, 0);
-        lv_obj_set_style_bg_color(button, lv_color_hex(0x292929), 0);
+        lv_obj_set_style_bg_color(button, lv_color_hex(0x1A1A1A), 0);
         lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLLABLE);
         auto label = lv_label_create(button);
         lv_label_set_text(label, index == 0 ? "Back" : "Next");
