@@ -10,6 +10,16 @@
 
 namespace {
 constexpr uint32_t kRaised = 0x181F2C, kAccent = 0x10A37F;
+// The round screen's geometry, shared with the design mockups: centre, and the
+// radius everything drawn has to stay inside of.
+constexpr int kCenter = 180, kSafeR = 176;
+constexpr int kDotNav = 44;    // smallest comfortable touch target here
+constexpr int kDotRowH = 46;   // app-pixels list row
+int ChordHalf(int y) {
+    const int dy = y - kCenter;
+    const int inside = kSafeR * kSafeR - dy * dy;
+    return inside > 0 ? static_cast<int>(std::sqrt(static_cast<float>(inside))) : 0;
+}
 void Background(lv_obj_t* obj) {
     lv_obj_set_style_bg_color(obj, lv_color_hex(0x0C1220), 0);
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
@@ -104,15 +114,35 @@ lv_obj_t* WatchUi::Button(lv_obj_t* p, int x, int y, int w, int h, const char* t
     Click(b,std::move(fn)); return b;
 }
 void WatchUi::Header(const char* title, Page back) {
-    Button(shell_,66,38,44,44,"",&watch_icons::back,[this,back]{Show(back);});
+    if(dot_style_){
+        // Back arrow and title on ONE line, centred as a pair - the way the
+        // device's own ChatGPT sheet already lays it out, and why the arrow
+        // left the corner. The title steps down one dot size when the pair
+        // cannot clear the circle: the button is a fixed 44px touch target and
+        // must not shrink.
+        dm_style_t st={4,3,1,kAccent,0x101010};
+        const int cy=70;
+        const int half=ChordHalf(cy-kDotNav/2)-10;
+        int w=dm_width(title,&st);
+        // Step the title down a dot size until the pair clears the circle. The
+        // button is a fixed 44px touch target and must not shrink, so a title
+        // too long for one line pays for it in size instead.
+        while(st.pitch>2&&kDotNav+12+w>2*half){st.pitch--;st.dot--;w=dm_width(title,&st);}
+        const int x0=kCenter-(kDotNav+12+w)/2;
+        Button(shell_,x0,cy-kDotNav/2,kDotNav,kDotNav,"",&watch_icons::back,[this,back]{Show(back);},0x1A1A1A);
+        dm_text(shell_,x0+kDotNav+12,cy-DM_H*st.pitch/2,title,&st);
+        Box(shell_,84,cy+26,192,1,0x2A2A33,0);   // hairline, not a filled bar
+        return;
+    }
+   Button(shell_,66,38,44,44,"",&watch_icons::back,[this,back]{Show(back);});
     auto l=Label(shell_,title,154);lv_obj_set_pos(l,116,49);
 }
 lv_obj_t* WatchUi::Column() {
-    auto c=Box(shell_,62,90,236,220,0,0);
+    auto c=Box(shell_,62,dot_style_?100:90,236,dot_style_?212:220,0,0);
     lv_obj_set_style_bg_opa(c,LV_OPA_TRANSP,0);
     lv_obj_add_flag(c,LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(c,LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(c,10,0);
+    lv_obj_set_style_pad_row(c,dot_style_?0:10,0);
     lv_obj_set_scroll_dir(c,LV_DIR_VER);
     lv_obj_set_scrollbar_mode(c,LV_SCROLLBAR_MODE_OFF);
     return column_=c;
@@ -120,7 +150,37 @@ lv_obj_t* WatchUi::Column() {
 // Row is read-only when `fn` is empty: no chevron, no navigation behavior.
 // The bool is captured before std::move so the chevron stays consistent.
 void WatchUi::Row(const char* title,const char* value,const lv_image_dsc_t* icon,std::function<void()> fn) {
-    const bool navigable = static_cast<bool>(fn);
+    if(dot_style_){
+        // Plain row: name left, value right on the SAME line, no icon chip and
+        // no chevron. Only the current row is filled, and it carries a 3px
+        // accent rule on the left - which is what makes the list scannable with
+        // no other chrome at all. A page marks its current row by passing "On"
+        // as that row's value.
+        const bool current=value!=nullptr&&strcmp(value,"On")==0;
+        auto r=Box(column_,0,0,236,kDotRowH,current?0x141414:0x000000,2);
+        lv_obj_set_style_bg_opa(r,current?LV_OPA_COVER:LV_OPA_TRANSP,0);
+        if(current){auto s=Box(r,0,0,3,kDotRowH,kAccent,0);lv_obj_remove_flag(s,LV_OBJ_FLAG_CLICKABLE);}
+        if(fn) Click(r,std::move(fn));
+        dm_style_t n={3,2,1,current?0xFFFFFFu:0x8E8E93u,0x101010u};
+        dm_style_t v={3,2,1,current?kAccent:0x5A5A5Fu,0x101010u};
+        const bool has_value=value!=nullptr&&value[0]!=0;
+        // The row has to hold a name and a value on ONE line, and nine
+        // characters of name at pitch 3 leaves no room for one. Both step down
+        // to pitch 2 together - the same trade the header makes with its title.
+        if(has_value&&14+dm_width(title,&n)+16+dm_width(value,&v)>236-12){
+            n.pitch=2;n.dot=1;v.pitch=2;v.dot=1;
+        }
+        dm_text(r,14,(kDotRowH-DM_H*n.pitch)/2,title,&n);
+        if(has_value){
+            const int vw=dm_width(value,&v);
+            // Anything that still cannot fit beside its name is dropped rather
+            // than written over it - a long chat title, usually.
+            if(14+dm_width(title,&n)+16+vw<=236-12)
+                dm_text(r,236-12-vw,(kDotRowH-DM_H*v.pitch)/2,value,&v);
+        }
+       return;
+    }
+   const bool navigable = static_cast<bool>(fn);
     auto r=Button(column_,0,0,236,62,"",nullptr,std::move(fn));
     lv_obj_clean(r);
     if(icon){auto chip=Box(r,10,15,32,32,0x232C3A,16);Icon(chip,icon);lv_obj_remove_flag(chip,LV_OBJ_FLAG_CLICKABLE);}
@@ -135,6 +195,12 @@ void WatchUi::Row(const char* title,const char* value,const lv_image_dsc_t* icon
 }
 void WatchUi::Show(Page page) {
     page_=page;
+    switch(page){
+    case Page::CodexSettings: case Page::Chats: case Page::Models:
+    case Page::Voices: case Page::Reasoning: case Page::Approvals:
+        dot_style_=true;break;
+    default: dot_style_=false;break;
+    }
     if(page==Page::Voice){
         lv_obj_add_flag(shell_,LV_OBJ_FLAG_HIDDEN);lv_obj_remove_flag(voice_,LV_OBJ_FLAG_HIDDEN);return;
     }
@@ -142,6 +208,10 @@ void WatchUi::Show(Page page) {
     lv_obj_remove_flag(shell_,LV_OBJ_FLAG_HIDDEN);lv_obj_move_foreground(shell_);
     lv_obj_clean(shell_);column_=clock_=date_=value_=field_=keys_=wifi_status_=notice_=error_=nullptr;
     keyboard_done_={};
+    // App-pixels pages are pure black with no gradient; the rest keep the navy
+    // watch background they have always had.
+    if(dot_style_){lv_obj_set_style_bg_color(shell_,lv_color_hex(0x000000),0);lv_obj_set_style_bg_grad_dir(shell_,LV_GRAD_DIR_NONE,0);}
+    else Background(shell_);
     switch(page){
     case Page::Home: {
         clock_=Label(shell_,time_.c_str());lv_obj_align(clock_,LV_ALIGN_TOP_MID,0,30);
@@ -321,7 +391,7 @@ void WatchUi::Show(Page page) {
         break;
     }
     case Page::Models:
-        Header("Next call model",model_return_);Column();
+        Header("Model",model_return_);Column();
         if(info_.models.size()<=1) {auto l=Label(column_,"Open a voice call to load\nyour available models.",236);lv_label_set_long_mode(l,LV_LABEL_LONG_WRAP);}
         for(size_t i=0;i<info_.models.size();++i){Row(info_.models[i].c_str(),nullptr,nullptr,[this,i]{Emit(Action::SelectModel,static_cast<int>(i));Show(model_return_);});}break;
     case Page::Approvals: {

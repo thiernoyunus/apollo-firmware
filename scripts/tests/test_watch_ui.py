@@ -33,6 +33,8 @@ EXPECTED_TAGS = {
     "wifi",
     "models",
     "about",
+    "chatgpt",
+    "chatgpt_voices",
     "keyboard_open",
     "keyboard_ab",
     "keyboard_upper",

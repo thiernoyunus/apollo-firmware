@@ -190,9 +190,13 @@ int main() {
         check(false, "Brightness Sleep timeout row found");
     }
 
-    ui.Show(WatchUi::Page::About); tick_lv();
+    // The ChatGPT pages wear the app-pixels language: black, one accent, the
+    // title on the same line as the back arrow, and only the current row filled.
+    ui.Show(WatchUi::Page::CodexSettings); tick_lv(); snap("chatgpt");
+    ui.Show(WatchUi::Page::Voices); tick_lv(); snap("chatgpt_voices");
     // A read-only About row still receives a real LVGL click. It must not
-    // call an empty std::function or crash with std::bad_function_call.
+    ui.Show(WatchUi::Page::About); tick_lv();
+   // call an empty std::function or crash with std::bad_function_call.
     lv_obj_t* firmware = find_label(lv_screen_active(), "Firmware");
     if (firmware) {
         send_click(lv_obj_get_parent(firmware)); tick_lv();

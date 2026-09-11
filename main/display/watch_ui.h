@@ -53,6 +53,9 @@ private:
     Info info_;
     Page page_ = Page::Home, model_return_ = Page::Settings, keyboard_return_ = Page::Wifi;
     bool call_active_ = false, uppercase_ = false;
+    // The ChatGPT pages use the app-pixels language; everything else still uses
+    // the navy watch look, so the two styles have to coexist while they land.
+    bool dot_style_ = false;
     int key_page_ = 0;
     std::string time_ = "--:--", date_text_, join_ssid_;
     std::function<void(const std::string&)> keyboard_done_;
