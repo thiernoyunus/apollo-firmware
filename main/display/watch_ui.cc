@@ -18,9 +18,6 @@ constexpr int kDotNav = 44;    // smallest comfortable touch target here
 constexpr int kDotRowH = 46;   // app-pixels list row
 constexpr const char* kShapeNames[]={"Circle","Pebble","Squircle","Capsule","Triangle","Hexagon","Cloud","Droplet"};
 constexpr const char* kColourNames[]={"Cream","Grey","Brown","Red","Orange","Amber","Green","Teal","Blue","Violet","Pink"};
-/* Attentive, like the call screen: a preview should read as the character
- * looking at you, not the three-quarter rest pose. */
-static const bloub_gaze_t kAttentivePreview={4.0f,5.0f,-4.0f};
 lv_obj_t* ShapePreview(lv_obj_t* parent, int shape, uint32_t color, int size=44, int scale=18) {
     auto* buf=static_cast<lv_color16_t*>(dm_alloc(size*size*sizeof(lv_color16_t)));
     if(!buf) return nullptr;
@@ -30,9 +27,9 @@ lv_obj_t* ShapePreview(lv_obj_t* parent, int shape, uint32_t color, int size=44,
     lv_canvas_set_buffer(canvas,buf,size,size,LV_COLOR_FORMAT_RGB565);
     lv_obj_set_size(canvas,size,size);
     lv_obj_add_event_cb(canvas,dm_free_buffer,LV_EVENT_DELETE,buf);
-    bloub_face_cfg_t face{};face.radii=SHAPE_PROFILES[shape];face.gaze=&kAttentivePreview;
-    face.split=16.0f;face.scale=scale;face.cx=face.cy=size/2.0f;face.sx=face.sy=1;face.eye_alpha=1;
-    for(int e=0;e<2;++e){face.eyes[e].w=.21f;face.eyes[e].h=.44f;face.eyes[e].open=1;}
+    bloub_face_cfg_t face{};face.radii=SHAPE_PROFILES[shape];face.gaze=&BLOUB_REST_GAZE;
+    face.split=BLOUB_EYE_SPLIT;face.scale=scale;face.cx=face.cy=size/2.0f;face.sx=face.sy=1;face.eye_alpha=1;
+    for(int e=0;e<2;++e){face.eyes[e].w=.236f;face.eyes[e].h=.447f;face.eyes[e].open=1;}
     bloub_draw_face(reinterpret_cast<uint16_t*>(buf),size,size,&face,lv_color_to_u16(lv_color_hex(color)),0);
     return canvas;
 }
