@@ -18,18 +18,17 @@ constexpr int kDotNav = 44;    // smallest comfortable touch target here
 constexpr int kDotRowH = 46;   // app-pixels list row
 constexpr const char* kShapeNames[]={"Circle","Pebble","Squircle","Capsule","Triangle","Hexagon","Cloud","Droplet"};
 constexpr const char* kColourNames[]={"Cream","Grey","Brown","Red","Orange","Amber","Green","Teal","Blue","Violet","Pink"};
-lv_obj_t* ShapePreview(lv_obj_t* parent, int shape, uint32_t color) {
-    constexpr int size=38;
+lv_obj_t* ShapePreview(lv_obj_t* parent, int shape, uint32_t color, int size=44, int scale=18) {
     auto* buf=static_cast<lv_color16_t*>(dm_alloc(size*size*sizeof(lv_color16_t)));
     if(!buf) return nullptr;
     memset(buf,0,size*size*sizeof(lv_color16_t));
     auto canvas=lv_canvas_create(parent);
     if(!canvas){dm_release(buf);return nullptr;}
     lv_canvas_set_buffer(canvas,buf,size,size,LV_COLOR_FORMAT_RGB565);
-    lv_obj_set_size(canvas,size,size);lv_obj_set_pos(canvas,8,4);
+    lv_obj_set_size(canvas,size,size);
     lv_obj_add_event_cb(canvas,dm_free_buffer,LV_EVENT_DELETE,buf);
     bloub_face_cfg_t face{};face.radii=SHAPE_PROFILES[shape];face.gaze=&BLOUB_REST_GAZE;
-    face.split=BLOUB_EYE_SPLIT;face.scale=15;face.cx=face.cy=size/2.0f;face.sx=face.sy=1;face.eye_alpha=1;
+    face.split=BLOUB_EYE_SPLIT;face.scale=scale;face.cx=face.cy=size/2.0f;face.sx=face.sy=1;face.eye_alpha=1;
     for(int e=0;e<2;++e){face.eyes[e].w=.236f;face.eyes[e].h=.447f;face.eyes[e].open=1;}
     bloub_draw_face(reinterpret_cast<uint16_t*>(buf),size,size,&face,lv_color_to_u16(lv_color_hex(color)),0);
     return canvas;
@@ -364,28 +363,33 @@ void WatchUi::Show(Page page) {
         Row("Reasoning",info_.reasoning.c_str(),&watch_icons::more,[this]{Show(Page::Reasoning);});break;
     case Page::Shapes: {
         Header("Shape",Page::CodexSettings);Column();
+        // Four rows breathe comfortably above the fixed selection counter;
+        // the remaining shapes stay reachable by swiping the list.
+        lv_obj_set_height(column_,164);
         for(int i=0;i<8;++i){
             Row(kShapeNames[i],info_.shape==i?"On":nullptr,nullptr,[this,i]{
                 info_.shape=i; Emit(Action::SelectShape,i); Show(Page::Shapes);
             });
             auto row=lv_obj_get_child(column_,lv_obj_get_child_cnt(column_)-1);
-            for(uint32_t c=0;c<lv_obj_get_child_cnt(row);++c){
-                auto child=lv_obj_get_child(row,c);
-                if(lv_obj_get_x(child)==14) lv_obj_set_x(child,54);
-            }
-            ShapePreview(row,i,info_.shape==i?0xF1EFE9:0x8E8E93);
+            // Row() creates the title canvas immediately after the optional
+            // selection stripe. Give the larger face a dedicated left lane so
+            // it never covers the first letters of the name.
+            const uint32_t title_index=info_.shape==i?1:0;
+            if(lv_obj_get_child_cnt(row)>title_index)
+                lv_obj_set_x(lv_obj_get_child(row,title_index),50);
+            if(auto preview=ShapePreview(row,i,info_.shape==i?0xF1EFE9:0x8E8E93))
+                lv_obj_set_pos(preview,2,1);
         }
+        char count[8];std::snprintf(count,sizeof(count),"%d/8",std::clamp(info_.shape,0,7)+1);
+        dm_style_t counter={3,2,1,0x5A5A5F,0x101010};
+        dm_text_center(shell_,180,274,count,&counter);
         break;
     }
     case Page::Colours: {
         Header("Colour",Page::CodexSettings);
         static const uint32_t colors[]={0xF1EFE9,0xA3A3A3,0x8B5E3C,0xE8483F,0xF08A24,0xF0B429,
                                         0x3ECF8E,0x2FBFA0,0x3B93F0,0x8B5CF6,0xE152B0};
-        const int row_n[]={3,4,4}, row_y[]={176,226,276}; int at=0;
-        dm_style_t name={3,2,1,0x8E8E93,0x101010};
-        dm_text_center(shell_,180,132,kColourNames[std::clamp(info_.colour,0,10)],&name);
-        if(auto preview=ShapePreview(shell_,std::clamp(info_.shape,0,7),colors[std::clamp(info_.colour,0,10)]))
-            lv_obj_set_pos(preview,161,78);
+        const int row_n[]={3,4,4}, row_y[]={140,202,264}; int at=0;
         for(int row=0;row<3;++row) for(int col=0;col<row_n[row];++col,++at){
             const int cx=180+(col*54-(row_n[row]-1)*27);
             auto swatch=Box(shell_,cx-23,row_y[row]-23,46,46,colors[at],12);
