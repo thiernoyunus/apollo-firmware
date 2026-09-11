@@ -486,7 +486,7 @@ void LcdDisplay::SetupUI() {
     auto screen = lv_screen_active();
     lv_obj_set_style_text_font(screen, text_font, 0);
     lv_obj_set_style_text_color(screen, lvgl_theme->text_color(), 0);
-    lv_obj_set_style_bg_color(screen, lvgl_theme->background_color(), 0);
+    lv_obj_set_style_bg_color(screen, lv_color_hex(0x000000), 0);
 
     /* Container */
     container_ = lv_obj_create(screen);
@@ -970,7 +970,7 @@ void LcdDisplay::SetupUI() {
     auto screen = voice_root_;
     lv_obj_set_style_text_font(screen, text_font, 0);
     lv_obj_set_style_text_color(screen, lvgl_theme->text_color(), 0);
-    lv_obj_set_style_bg_color(screen, lvgl_theme->background_color(), 0);
+    lv_obj_set_style_bg_color(screen, lv_color_hex(0x000000), 0);
 
     /* Container - used as background */
     container_ = lv_obj_create(screen);
@@ -1667,7 +1667,11 @@ void LcdDisplay::RenderVoiceOrb(float seconds) {
     /* Idle life: the blink schedule and the gaze drift, both pure functions of
      * the time this screen has been up. */
     const bloub_liveliness_t life = bloub_liveliness(seconds, 1.0f, true, true);
-    bloub_gaze_t gaze = BLOUB_REST_GAZE;
+    /* Facing the user. bloub's rest gaze is a three-quarter view measured off
+     * the reference video, which reads as looking off to one side on a device
+     * that is meant to be looking at whoever is in front of it. */
+    static const bloub_gaze_t kAttentive = { 4.0f, 5.0f, -4.0f };
+    bloub_gaze_t gaze = kAttentive;
     gaze.yaw += life.d_yaw;
     gaze.pitch += life.d_pitch;
     gaze.roll += life.d_roll;
@@ -1676,7 +1680,7 @@ void LcdDisplay::RenderVoiceOrb(float seconds) {
     memset(&face, 0, sizeof(face));
     face.radii = SHAPE_PROFILES[voice_shape_];
     face.gaze = &gaze;
-    face.split = BLOUB_EYE_SPLIT;
+    face.split = 16.0f;
     /* Nearly filling its canvas: bloub's face is the whole device, not a small
      * puck in the middle of one. */
     face.scale = static_cast<float>(size) * 0.46f;
@@ -1684,8 +1688,8 @@ void LcdDisplay::RenderVoiceOrb(float seconds) {
     face.sx = face.sy = 1.0f;
     face.eye_alpha = 1.0f;
     for (int e = 0; e < 2; e++) {
-        face.eyes[e].w = 0.236f;      /* the resting expression's eye, from bloub */
-        face.eyes[e].h = 0.447f;
+        face.eyes[e].w = 0.21f;      /* the resting expression's eye, from bloub */
+        face.eyes[e].h = 0.44f;
         face.eyes[e].open = bloub_blink_scale(life.lid);
     }
 
@@ -1929,7 +1933,7 @@ void LcdDisplay::SetTheme(Theme* theme) {
     // Update low battery popup
     lv_obj_set_style_bg_color(low_battery_popup_, lvgl_theme->low_battery_color(), 0);
 
-    lv_obj_set_style_bg_color(container_, lv_color_hex(0x0C1220), 0);
+    lv_obj_set_style_bg_color(container_, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_image_src(container_, nullptr, 0);
     lv_obj_set_style_text_color(voice_root_, lv_color_white(), 0);
     lv_obj_set_style_text_color(status_label_, lv_color_white(), 0);
