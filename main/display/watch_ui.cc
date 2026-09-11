@@ -369,26 +369,27 @@ void WatchUi::Show(Page page) {
         Row("Reasoning",info_.reasoning.c_str(),&watch_icons::more,[this]{Show(Page::Reasoning);});break;
     case Page::Shapes: {
         Header("Shape",Page::CodexSettings);Column();
-        // Four rows breathe comfortably above the fixed selection counter;
-        // the remaining shapes stay reachable by swiping the list.
-        lv_obj_set_height(column_,164);
+        // Four rows fill the space between the header rule and the bottom of
+        // the circle; the rest stay reachable by swiping. No counter: the list
+        // is short enough to see, and the number was just sitting in space.
+        lv_obj_set_height(column_,208);
         for(int i=0;i<8;++i){
             Row(kShapeNames[i],info_.shape==i?"On":nullptr,nullptr,[this,i]{
                 info_.shape=i; Emit(Action::SelectShape,i); Show(Page::Shapes);
             });
             auto row=lv_obj_get_child(column_,lv_obj_get_child_cnt(column_)-1);
+            lv_obj_set_height(row,52);   /* fill the page rather than 46 of it */
             // Row() creates the title canvas immediately after the optional
             // selection stripe. Give the larger face a dedicated left lane so
             // it never covers the first letters of the name.
             const uint32_t title_index=info_.shape==i?1:0;
-            if(lv_obj_get_child_cnt(row)>title_index)
+            if(lv_obj_get_child_cnt(row)>title_index){
                 lv_obj_set_x(lv_obj_get_child(row,title_index),50);
+                lv_obj_set_y(lv_obj_get_child(row,title_index),15);
+            }
             if(auto preview=ShapePreview(row,i,info_.shape==i?0xF1EFE9:0x8E8E93))
-                lv_obj_set_pos(preview,2,1);
+                lv_obj_set_pos(preview,2,4);
         }
-        char count[8];std::snprintf(count,sizeof(count),"%d/8",std::clamp(info_.shape,0,7)+1);
-        dm_style_t counter={3,2,1,0x5A5A5F,0x101010};
-        dm_text_center(shell_,180,274,count,&counter);
         break;
     }
     case Page::Colours: {
