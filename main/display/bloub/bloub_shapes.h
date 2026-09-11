@@ -6,12 +6,40 @@
 
 #include <stdint.h>
 
+#include "bloub_face.h"
+
+/* A face, assembled: a silhouette, a head orientation, and two eyes. The eyes
+ * are placed by projecting them onto the sphere (bloub_face.h), so they lean
+ * and narrow with the head instead of sitting flat on it. */
+typedef struct {
+    const float* radii;          /* the shape profile, 64 samples */
+    const bloub_gaze_t* gaze;
+    float split;                 /* half the eye gap, degrees on the sphere */
+    float scale;                 /* body radius, in pixels */
+    float cx, cy;
+    float sx, sy;                /* squash and stretch, screen frame */
+    float rot;                   /* body rotation, radians */
+    /* Per eye: size in body radii, its own tilt in degrees, and how open it is. */
+    struct { float w, h, tilt, open; } eyes[2];
+    float eye_alpha;             /* below 0.5 the eyes are not drawn at all */
+} bloub_face_cfg_t;
+
 /* Drawing. See bloub_shapes.c: the body is filled into a buffer of the panel's
  * own 16-bit words, then the eyes are erased back to `background`. */
 void bloub_fill_shape(uint16_t* buf, int w, int h, const float* radii, float scale,
                       float cx, float cy, uint16_t color);
 void bloub_punch_eye(uint16_t* buf, int w, int h, float cx, float cy, float ew, float eh,
                      float tilt_deg, uint16_t background);
+
+/* The same punch, but the eye is drawn in its own tangent frame - the 2x2 that
+ * bloub_eye_poses returns - so it leans and foreshortens with the sphere. */
+void bloub_punch_eye_posed(uint16_t* buf, int w, int h, float cx, float cy, float hw,
+                           float hh, float a, float b, float c, float d, float tilt_deg,
+                           uint16_t background);
+
+/** Body plus eyes in one call. */
+void bloub_draw_face(uint16_t* buf, int w, int h, const bloub_face_cfg_t* f, uint16_t body,
+                     uint16_t background);
 
 typedef enum { SHAPE_CIRCLE, SHAPE_PEBBLE, SHAPE_SQUIRCLE, SHAPE_CAPSULE, SHAPE_TRIANGLE, SHAPE_HEXAGON, SHAPE_CLOUD, SHAPE_DROPLET, SHAPE_COUNT } shape_id_t;
 

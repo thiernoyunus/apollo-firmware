@@ -1,12 +1,14 @@
 /* Checks the ported silhouettes and the two primitives that draw them.
  *
  *   cc -I main/display/bloub -o /tmp/bloub_shapes_check \\
- *      scripts/tests/bloub_shapes_check.c main/display/bloub/bloub_shapes.c -lm
+ *      scripts/tests/bloub_shapes_check.c main/display/bloub/bloub_shapes.c \\
+ *      main/display/bloub/bloub_face.c -lm
  *
  * No LVGL, no display: a buffer of panel words and the arithmetic. */
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "bloub_shapes.h"
 
@@ -19,6 +21,22 @@ static int count_body(void) {
     int n = 0;
     for (int i = 0; i < W * H; i++) if (buf[i] == BODY) n++;
     return n;
+}
+
+static int count_body_of(const uint16_t* b) {
+    int n = 0;
+    for (int i = 0; i < W * H; i++) if (b[i] == BODY) n++;
+    return n;
+}
+
+/* Mean x of the pixels a face erased, measured against the bare silhouette. */
+static double holes_centroid_x(const uint16_t* b, const uint16_t* bare) {
+    double sx = 0.0;
+    int n = 0;
+    for (int i = 0; i < W * H; i++) {
+        if (bare[i] == BODY && b[i] != BODY) { sx += (double)(i % W); n++; }
+    }
+    return n ? sx / n : 0.0;
 }
 
 int main(void) {
@@ -73,7 +91,55 @@ int main(void) {
             if (buf[y * W + x] == BODY && y < top) top = y;
     assert(top > 100 - 65 && top < 100 - 55);   /* the peak radius, to the pixel */
 
-    printf("ok: %d shapes, circle %d px (%.1f%% of pi r^2), eye removed %d px\n",
-           SHAPE_COUNT, filled, 100.0 * filled / expected, removed);
+    /* 6. A whole face: body filled, two eyes punched, nothing painted outside
+     *    the silhouette, and the eyes actually move when the head turns. */
+    static uint16_t ref[W * H];
+    bloub_gaze_t gaze = BLOUB_REST_GAZE;
+    bloub_face_cfg_t face;
+    memset(&face, 0, sizeof(face));
+    face.radii = SHAPE_PROFILES[SHAPE_CIRCLE];
+    face.gaze = &gaze;
+    face.split = BLOUB_EYE_SPLIT;
+    face.scale = 60.0f;
+    face.cx = 100.0f;
+    face.cy = 100.0f;
+    face.sx = face.sy = 1.0f;
+    face.eye_alpha = 1.0f;
+    for (int e = 0; e < 2; e++) {
+        face.eyes[e].w = 0.30f;
+        face.eyes[e].h = 0.45f;
+        face.eyes[e].open = 1.0f;
+    }
+
+    for (int i = 0; i < W * H; i++) ref[i] = BG;
+    bloub_fill_shape(ref, W, H, SHAPE_PROFILES[SHAPE_CIRCLE], 60.0f, 100.0f, 100.0f, BODY);
+    const int bare = count_body_of(ref);
+
+    for (int i = 0; i < W * H; i++) buf[i] = BG;
+    bloub_draw_face(buf, W, H, &face, BODY, BG);
+    assert(count_body() < bare);                       /* the eyes are holes */
+    for (int i = 0; i < W * H; i++)
+        if (buf[i] == BODY) assert(ref[i] == BODY);    /* never outside the body */
+
+    /* Turn the head: the eyes have to move with it. */
+    bloub_gaze_t turned = { BLOUB_REST_GAZE.yaw + 45.0f, BLOUB_REST_GAZE.pitch,
+                            BLOUB_REST_GAZE.roll };
+    face.gaze = &turned;
+    static uint16_t buf2[W * H];
+    for (int i = 0; i < W * H; i++) buf2[i] = BG;
+    bloub_draw_face(buf2, W, H, &face, BODY, BG);
+    const double moved = fabs(holes_centroid_x(buf, ref) - holes_centroid_x(buf2, ref));
+    assert(moved > 4.0);
+
+    /* Eyes off: the face is the bare silhouette, to the pixel. */
+    face.gaze = &gaze;
+    face.eye_alpha = 0.0f;
+    for (int i = 0; i < W * H; i++) buf[i] = BG;
+    bloub_draw_face(buf, W, H, &face, BODY, BG);
+    assert(count_body() == bare);
+
+    printf("ok: %d shapes, circle %d px (%.1f%% of pi r^2), eye removed %d px, "
+           "turning the head moves the eyes %.1f px\n",
+           SHAPE_COUNT, filled, 100.0 * filled / expected, removed, moved);
     return 0;
 }
