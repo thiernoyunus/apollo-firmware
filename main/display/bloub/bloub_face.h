@@ -1,5 +1,11 @@
 #pragma once
 
+/* These headers are included from C++ (the display layer), so the definitions
+ * in bloub_face.c and bloub_shapes.c need C linkage to be found. */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Eyes on a sphere, and the idle life. Ported from bloub src/bot/face.ts.
  * MIT Licence, Copyright (c) 2026 Jeremy Perret - see LICENSE. */
 
@@ -51,3 +57,7 @@ float bloub_blink_scale(float lid);
 
 /** The bare lid for `t`, for callers that only want the blink. */
 float bloub_blink_lid(float t);
+
+#ifdef __cplusplus
+}
+#endif

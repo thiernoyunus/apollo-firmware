@@ -1,4 +1,10 @@
 #pragma once
+
+/* These headers are included from C++ (the display layer), so the definitions
+ * in bloub_face.c and bloub_shapes.c need C linkage to be found. */
+#ifdef __cplusplus
+extern "C" {
+#endif
 /* The eight silhouettes, as bloub measured them: 64 radial samples each, from
  * src/bot/skins.ts. MIT Licence, Copyright (c) 2026 Jeremy Perret - see
  * LICENSE beside this file. The numbers are the source's; do not round them. */
@@ -75,3 +81,7 @@ static inline const char *shape_name(shape_id_t s) {
     default: return "UNKNOWN";
   }
 }
+
+#ifdef __cplusplus
+}
+#endif

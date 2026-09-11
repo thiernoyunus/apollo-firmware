@@ -1,4 +1,6 @@
 #include "lcd_display.h"
+#include "bloub/bloub_shapes.h"   /* the character */
+#include "bloub/bloub_face.h"
 #include "assets/lang_config.h"
 #include "gif/lvgl_gif.h"
 #include "lvgl_theme.h"
@@ -1587,60 +1589,42 @@ void LcdDisplay::SetStatus(const char* status) {
 void LcdDisplay::RenderVoiceOrb(float seconds) {
     if (voice_orb_canvas_ == nullptr || voice_orb_buffer_ == nullptr) return;
 
+    /* The character, not a fluid gradient. Ported from bloub (see
+     * main/display/bloub/) and drawn into the same 166px canvas the orb used.
+     * White on black keeps both colours swap-invariant, so nothing here has to
+     * care how the panel orders its 16-bit words. */
     const int size = voice_geometry::kOrbSize;
-    const float color_r = static_cast<float>((voice_orb_color_ >> 16) & 0xFF) / 255.0f;
-    const float color_g = static_cast<float>((voice_orb_color_ >> 8) & 0xFF) / 255.0f;
-    const float color_b = static_cast<float>(voice_orb_color_ & 0xFF) / 255.0f;
-    const float t = seconds * 0.22f;
-    const float drift_x = std::sin(t) + 0.6f * std::sin(t * 1.7f + 1.3f);
-    const float drift_y = std::cos(t * 0.8f) + 0.6f * std::cos(t * 1.3f + 2.1f);
-    const float light_r = FluidOrbMix(1.0f, color_r, 0.5f);
-    const float light_g = FluidOrbMix(1.0f, color_g, 0.5f);
-    const float light_b = FluidOrbMix(1.0f, color_b, 0.5f);
+    lv_color16_t fg{};
+    fg.red = 31; fg.green = 63; fg.blue = 31;
+    const lv_color16_t bg{};
+    const uint16_t body = *reinterpret_cast<const uint16_t*>(&fg);
+    const uint16_t back = *reinterpret_cast<const uint16_t*>(&bg);
 
-    // ponytail: sample a 100x100 grid and expand it to 2x2 pixels; full-resolution noise is
-    // needlessly expensive on the ESP32, and the display's 16-bit color already softens it.
-    for (int y = 0; y < size; y += kFluidOrbSampleStep) {
-        const float canvas_y = static_cast<float>(y) + 0.5f;
-        const float uv_y = 1.0f - canvas_y / static_cast<float>(size);
-        for (int x = 0; x < size; x += kFluidOrbSampleStep) {
-            const float uv_x = (static_cast<float>(x) + 0.5f) / static_cast<float>(size);
-            const float p_x = uv_x * 1.8f + drift_x * 0.7f;
-            const float p_y = uv_y + drift_y * 0.7f;
-            const float q_x = FluidOrbFbm(p_x + drift_x, p_y + drift_y);
-            const float q_y = FluidOrbFbm(p_x + 3.2f - drift_x, p_y + 1.5f - drift_y);
-            const float noise = FluidOrbFbm(p_x + 1.2f * q_x, p_y + 1.2f * q_y);
-            const float base = std::clamp(1.0f - uv_y, 0.0f, 1.0f);
-            const float anchor = FluidOrbSmoothStep(0.0f, 0.3f, uv_y);
-            const float shade = std::clamp(base + (noise - 0.5f) * 0.8f * anchor, 0.0f, 1.0f);
+    /* Idle life: the blink schedule and the gaze drift, both pure functions of
+     * the time this screen has been up. */
+    const bloub_liveliness_t life = bloub_liveliness(seconds, 1.0f, true, true);
+    bloub_gaze_t gaze = BLOUB_REST_GAZE;
+    gaze.yaw += life.d_yaw;
+    gaze.pitch += life.d_pitch;
+    gaze.roll += life.d_roll;
 
-            float red = FluidOrbMix(1.0f, light_r, FluidOrbSmoothStep(0.28f, 0.52f, shade));
-            float green = FluidOrbMix(1.0f, light_g, FluidOrbSmoothStep(0.28f, 0.52f, shade));
-            float blue = FluidOrbMix(1.0f, light_b, FluidOrbSmoothStep(0.28f, 0.52f, shade));
-            const float dark_mix = FluidOrbSmoothStep(0.58f, 0.88f, shade);
-            red = FluidOrbMix(red, color_r, dark_mix);
-            green = FluidOrbMix(green, color_g, dark_mix);
-            blue = FluidOrbMix(blue, color_b, dark_mix);
-
-            const float dx = uv_x - 0.5f;
-            const float dy = uv_y - 0.5f;
-            const float edge = FluidOrbSmoothStep(0.5f, 0.49f, std::sqrt(dx * dx + dy * dy));
-            lv_color16_t pixel{};
-            pixel.blue = static_cast<uint16_t>(
-                             std::clamp(blue * edge, 0.0f, 1.0f) * 255.0f) >> 3;
-            pixel.green = static_cast<uint16_t>(
-                              std::clamp(green * edge, 0.0f, 1.0f) * 255.0f) >> 2;
-            pixel.red = static_cast<uint16_t>(
-                            std::clamp(red * edge, 0.0f, 1.0f) * 255.0f) >> 3;
-
-            for (int block_y = 0; block_y < kFluidOrbSampleStep && y + block_y < size; ++block_y) {
-                for (int block_x = 0; block_x < kFluidOrbSampleStep && x + block_x < size;
-                     ++block_x) {
-                    voice_orb_buffer_[(y + block_y) * size + x + block_x] = pixel;
-                }
-            }
-        }
+    bloub_face_cfg_t face;
+    memset(&face, 0, sizeof(face));
+    face.radii = SHAPE_PROFILES[SHAPE_CIRCLE];
+    face.gaze = &gaze;
+    face.split = BLOUB_EYE_SPLIT;
+    face.scale = static_cast<float>(size) * 0.34f;
+    face.cx = face.cy = static_cast<float>(size) * 0.5f;
+    face.sx = face.sy = 1.0f;
+    face.eye_alpha = 1.0f;
+    for (int e = 0; e < 2; e++) {
+        face.eyes[e].w = 0.236f;      /* the resting expression's eye, from bloub */
+        face.eyes[e].h = 0.447f;
+        face.eyes[e].open = bloub_blink_scale(life.lid);
     }
+
+    memset(voice_orb_buffer_, 0, sizeof(lv_color16_t) * static_cast<size_t>(size) * size);
+    bloub_draw_face(reinterpret_cast<uint16_t*>(voice_orb_buffer_), size, size, &face, body, back);
     lv_obj_invalidate(voice_orb_canvas_);
 }
 #endif

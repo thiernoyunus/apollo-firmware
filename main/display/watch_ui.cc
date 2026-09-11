@@ -195,11 +195,14 @@ void WatchUi::Row(const char* title,const char* value,const lv_image_dsc_t* icon
 }
 void WatchUi::Show(Page page) {
     page_=page;
+    // Every page wears the app-pixels language except the three that are not
+    // lists: Home keeps its icon tiles by request, the call screen is the
+    // character, and the keyboard and Wi-Fi setup bring their own layout.
     switch(page){
-    case Page::CodexSettings: case Page::Chats: case Page::Models:
-    case Page::Voices: case Page::Reasoning: case Page::Approvals:
-        dot_style_=true;break;
-    default: dot_style_=false;break;
+    case Page::Home: case Page::Voice: case Page::Keyboard: case Page::WifiSetup:
+    case Page::Sleep: case Page::Brightness: case Page::About: case Page::Wifi:
+        dot_style_=false;break;
+    default: dot_style_=true;break;
     }
     if(page==Page::Voice){
         lv_obj_add_flag(shell_,LV_OBJ_FLAG_HIDDEN);lv_obj_remove_flag(voice_,LV_OBJ_FLAG_HIDDEN);return;
