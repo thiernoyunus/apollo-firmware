@@ -8,6 +8,7 @@
 #include "voice_geometry.h"
 #include "confirm_geometry.h"
 #include "watch_icons.h"
+#include "watch_dotmatrix.h"
 
 #include <esp_err.h>
 #include <esp_log.h>
@@ -40,6 +41,38 @@ namespace {
 // Fluid shading ported from Rare UI's Fluid Orb: https://www.rareui.com/components/fluidorb
 constexpr uint32_t kFluidOrbFramePeriodMs = 66;
 constexpr int kFluidOrbSampleStep = 2;
+
+constexpr uint32_t kVoiceGreen = 0x30C46E;
+constexpr uint32_t kVoiceCyan = 0x2FD8E8;
+constexpr uint32_t kVoiceAmber = 0xF5A524;
+constexpr uint32_t kVoiceRed = 0xE5484D;
+constexpr uint32_t kVoiceGray = 0x8E8E93;
+constexpr uint32_t kVoiceBodyColors[]={0xF1EFE9,0xA3A3A3,0x8B5E3C,0xE8483F,0xF08A24,0xF0B429,
+                                       0x3ECF8E,0x2FBFA0,0x3B93F0,0x8B5CF6,0xE152B0};
+
+struct VoiceStateCaption {
+    const char* text;
+    uint32_t color;
+};
+
+VoiceStateCaption CaptionForDeviceState(DeviceState state, bool muted) {
+    switch (state) {
+        case kDeviceStateStarting:
+        case kDeviceStateActivating: return {"WAKING", kVoiceGreen};
+        case kDeviceStateWifiConfiguring:
+        case kDeviceStateConnecting: return {"CONNECTING", kVoiceCyan};
+        case kDeviceStateListening:
+            return muted ? VoiceStateCaption{"MUTED", kVoiceGray}
+                         : VoiceStateCaption{"LISTENING", kVoiceGreen};
+        case kDeviceStateSpeaking: return {"SPEAKING", kVoiceCyan};
+        case kDeviceStateUpgrading: return {"UPGRADING", 0x7465EB};
+        case kDeviceStateFatalError: return {"ERROR", kVoiceRed};
+        case kDeviceStateAudioTesting: return {"TESTING", kVoiceAmber};
+        case kDeviceStateUnknown:
+        case kDeviceStateIdle:
+        default: return {"READY", kVoiceGray};
+    }
+}
 
 float FluidOrbMix(float first, float second, float amount) {
     return first + (second - first) * amount;
@@ -916,6 +949,11 @@ void LcdDisplay::SetupUI() {
     auto large_icon_font = lvgl_theme->large_icon_font()->font();
 
     voice_root_ = lv_obj_create(lv_screen_active());
+    {
+        Settings character("display", false);
+        voice_shape_ = std::clamp<int32_t>(character.GetInt("voice_shape", 0), 0, SHAPE_COUNT - 1);
+        voice_colour_ = std::clamp<int32_t>(character.GetInt("voice_colour", 0), 0, 10);
+    }
     /* Black, like every other screen the character appears on. The voice screen
      * used to be navy, which left the character sitting in a black square on a
      * dark blue page - two different darks, and the square was the seam. */
@@ -1105,25 +1143,11 @@ void LcdDisplay::SetupUI() {
     lv_obj_set_style_text_color(status_label_, lv_color_white(), 0);
     lv_obj_set_style_text_color(notification_label_, lv_color_white(), 0);
     lv_obj_set_style_text_color(chat_message_label_, lv_color_white(), 0);
-    lv_obj_set_style_bg_opa(bottom_bar_, LV_OPA_TRANSP, 0);
-    lv_obj_set_width(top_bar_, 160);
-    lv_obj_align(top_bar_, LV_ALIGN_TOP_MID, 0, 24);
+    lv_obj_add_flag(bottom_bar_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(top_bar_, LV_OBJ_FLAG_HIDDEN);
-    // Activity updates resize the pill to its text, capped at 260px.
-    lv_obj_set_size(status_bar_, 220, 36);
-    lv_obj_align(status_bar_, LV_ALIGN_CENTER, 0, 4);
-    lv_obj_set_style_radius(status_bar_, 32, 0);
-    lv_obj_set_style_bg_color(status_bar_, lv_color_hex(0x303346), 0);
-    lv_obj_set_style_bg_opa(status_bar_, LV_OPA_80, 0);
-    lv_obj_set_size(status_label_, 200, 24);
-    lv_obj_set_size(notification_label_, 200, 24);
-    lv_label_set_long_mode(status_label_, LV_LABEL_LONG_DOT);
-    lv_label_set_long_mode(notification_label_, LV_LABEL_LONG_DOT);
-    // Leave space between the orb, captions, and call controls.
-    lv_obj_set_size(bottom_bar_, 190, 26);
-    lv_obj_align(bottom_bar_, LV_ALIGN_BOTTOM_MID, 0, -24);
-    lv_obj_set_size(chat_message_label_, 184, 24);
-    lv_label_set_long_mode(chat_message_label_, LV_LABEL_LONG_SCROLL);
+    lv_obj_add_flag(status_bar_, LV_OBJ_FLAG_HIDDEN);
+    const auto initial_caption = CaptionForDeviceState(Application::GetInstance().GetDeviceState(), false);
+    UpdateVoiceStateCaption(initial_caption.text, initial_caption.color);
 
     // One small connector icon beside the activity text.
     voice_status_icon_ = lv_obj_create(status_bar_);
@@ -1244,29 +1268,26 @@ void LcdDisplay::SetupUI() {
         });
     for (int i = 0; i < 2; ++i) {
         auto b = lv_obj_create(screen);
-        lv_obj_set_pos(b, i == 0 ? 62 : 246, 62);
-        lv_obj_set_size(b, 52, 52);
+        lv_obj_set_pos(b, i == 0 ? 52 : 264, 74);
+        lv_obj_set_size(b, 44, 44);
         lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
         lv_obj_set_style_pad_all(b, 0, 0);
         lv_obj_set_style_border_width(b, 0, 0);
         lv_obj_set_style_bg_color(b, lv_color_hex(0x181F2C), 0);
         lv_obj_remove_flag(b, LV_OBJ_FLAG_SCROLLABLE);
         auto icon = lv_image_create(b);
-        lv_image_set_src(icon, i == 0 ? &watch_icons::home : &watch_icons::more);
+        lv_image_set_src(icon, i == 0 ? &watch_icons::back : &watch_icons::more);
         lv_obj_set_style_image_recolor(icon, lv_color_white(), 0);
         lv_obj_set_style_image_recolor_opa(icon, LV_OPA_COVER, 0);
         lv_obj_center(icon);
         lv_obj_add_event_cb(b, [](lv_event_t* e) {
             auto self = static_cast<LcdDisplay*>(lv_event_get_user_data(e));
-            const bool home = lv_obj_get_x(static_cast<lv_obj_t*>(lv_event_get_target(e))) == 62;
+            const bool home = lv_obj_get_x(static_cast<lv_obj_t*>(lv_event_get_target(e))) == 52;
             if (home) Application::GetInstance().OnWatchAction(WatchUi::Action::EndCall, 0, "", "");
             self->watch_ui_->Show(home ? WatchUi::Page::Home : WatchUi::Page::CodexSettings);
             Application::GetInstance().OnWatchAction(WatchUi::Action::Refresh, 0, "", "");
         }, LV_EVENT_CLICKED, this);
     }
-    voice_clock_ = lv_label_create(screen);
-    lv_label_set_text(voice_clock_, "--:--");
-    lv_obj_align(voice_clock_, LV_ALIGN_TOP_MID, 0, 26);
     lv_obj_add_event_cb(emoji_box_, [](lv_event_t*) {
         Application::GetInstance().OnWatchAction(WatchUi::Action::OpenVoice, 0, "", "");
     }, LV_EVENT_CLICKED, this);
@@ -1343,7 +1364,11 @@ void LcdDisplay::SetChatMessage(const char* role, const char* content) {
         if (content == nullptr || content[0] == '\0') {
             lv_obj_add_flag(bottom_bar_, LV_OBJ_FLAG_HIDDEN);
         } else if (!hide_subtitle_) {
+#ifdef CONFIG_APOLLO_CODEX_VOICE
+            lv_obj_add_flag(bottom_bar_, LV_OBJ_FLAG_HIDDEN);
+#else
             lv_obj_remove_flag(bottom_bar_, LV_OBJ_FLAG_HIDDEN);
+#endif
         }
     }
 #if CONFIG_USE_MULTILINE_CHAT_MESSAGE && !defined(CONFIG_APOLLO_CODEX_VOICE)
@@ -1456,6 +1481,17 @@ static bool VoiceIconIsThinking(const char* activity) {
     return eq_ci(activity, "thinking", 8) || eq_ci(activity, "reasoning", 9);
 }
 
+void LcdDisplay::UpdateVoiceStateCaption(const char* text, uint32_t color) {
+    if (voice_root_ == nullptr || text == nullptr) return;
+    if (voice_state_caption_ != nullptr && voice_state_caption_text_ == text &&
+        voice_state_caption_color_ == color) return;
+    if (voice_state_caption_ != nullptr) lv_obj_delete(voice_state_caption_);
+    dm_style_t style = {3, 2, 1, color, 0x101010};
+    voice_state_caption_ = dm_text_center(voice_root_, 180, 42, text, &style);
+    voice_state_caption_text_ = text;
+    voice_state_caption_color_ = color;
+}
+
 
 static void SizeVoicePill(lv_obj_t* bar, lv_obj_t* label, const char* text, bool has_icon) {
     if (bar == nullptr || label == nullptr || text == nullptr) return;
@@ -1482,6 +1518,9 @@ void LcdDisplay::SetVoiceActivity(const char* activity, const char* icon, const 
         voice_tool_active_ = false;
         SetStatus(Lang::Strings::LISTENING);
         return;
+    }
+    if (VoiceIconIsThinking(activity)) {
+        UpdateVoiceStateCaption("THINKING", kVoiceAmber);
     }
     voice_tool_active_ = !VoiceIconIsThinking(activity) && strcmp(activity, "Answering…") != 0;
     lv_label_set_text(voice_status_text_, activity);
@@ -1524,11 +1563,28 @@ void LcdDisplay::SetVoiceMicrophoneMuted(bool muted) {
     }
     lv_label_set_text(voice_mute_icon_, muted ? MATERIAL_SYMBOLS_MIC_OFF : MATERIAL_SYMBOLS_MIC);
     lv_obj_set_style_bg_color(voice_mute_button_, lv_color_hex(muted ? 0xA52C3D : 0x292929), 0);
+    if (Application::GetInstance().GetDeviceState() == kDeviceStateListening) {
+        const auto caption = CaptionForDeviceState(kDeviceStateListening, muted);
+        UpdateVoiceStateCaption(caption.text, caption.color);
+    }
+}
+
+void LcdDisplay::SetVoiceCharacter(int shape, int colour) {
+    DisplayLockGuard lock(this);
+    voice_shape_ = std::clamp(shape, 0, static_cast<int>(SHAPE_COUNT) - 1);
+    voice_colour_ = std::clamp(colour, 0, 10);
+    RenderVoiceOrb(static_cast<float>(lv_tick_elaps(voice_orb_started_at_)) / 1000.0f);
 }
 
 void LcdDisplay::SetStatus(const char* status) {
     DisplayLockGuard lock(this);
     const bool mic_muted = Application::GetInstance().GetAudioService().IsMicrophoneMuted();
+    if (!voice_tool_active_ || strcmp(status, Lang::Strings::SPEAKING) == 0 ||
+        strcmp(status, Lang::Strings::STANDBY) == 0 ||
+        strcmp(status, Lang::Strings::ERROR) == 0) {
+        const auto caption = CaptionForDeviceState(Application::GetInstance().GetDeviceState(), mic_muted);
+        UpdateVoiceStateCaption(caption.text, caption.color);
+    }
     // When muted we must not say "Listening" on the pill, but an active tool
     // caption still owns the pill — don't overwrite it.
     const char* pill_status = status;
@@ -1604,10 +1660,8 @@ void LcdDisplay::RenderVoiceOrb(float seconds) {
      * White on black keeps both colours swap-invariant, so nothing here has to
      * care how the panel orders its 16-bit words. */
     const int size = voice_geometry::kOrbSize;
-    lv_color16_t fg{};
-    fg.red = 31; fg.green = 63; fg.blue = 31;
+    const uint16_t body = lv_color_to_u16(lv_color_hex(kVoiceBodyColors[voice_colour_]));
     const lv_color16_t bg{};
-    const uint16_t body = *reinterpret_cast<const uint16_t*>(&fg);
     const uint16_t back = *reinterpret_cast<const uint16_t*>(&bg);
 
     /* Idle life: the blink schedule and the gaze drift, both pure functions of
@@ -1620,7 +1674,7 @@ void LcdDisplay::RenderVoiceOrb(float seconds) {
 
     bloub_face_cfg_t face;
     memset(&face, 0, sizeof(face));
-    face.radii = SHAPE_PROFILES[SHAPE_CIRCLE];
+    face.radii = SHAPE_PROFILES[voice_shape_];
     face.gaze = &gaze;
     face.split = BLOUB_EYE_SPLIT;
     /* Nearly filling its canvas: bloub's face is the whole device, not a small

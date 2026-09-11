@@ -1,6 +1,7 @@
 #include "watch_ui.h"
 #include "watch_icons.h"
 #include "watch_dotmatrix.h"   /* the app-pixels look; the ChatGPT pages are moving to it */
+#include "bloub/bloub_shapes.h"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -15,6 +16,24 @@ constexpr uint32_t kRaised = 0x181F2C, kAccent = 0x10A37F;
 constexpr int kCenter = 180, kSafeR = 176;
 constexpr int kDotNav = 44;    // smallest comfortable touch target here
 constexpr int kDotRowH = 46;   // app-pixels list row
+constexpr const char* kShapeNames[]={"Circle","Pebble","Squircle","Capsule","Triangle","Hexagon","Cloud","Droplet"};
+constexpr const char* kColourNames[]={"Cream","Grey","Brown","Red","Orange","Amber","Green","Teal","Blue","Violet","Pink"};
+lv_obj_t* ShapePreview(lv_obj_t* parent, int shape, uint32_t color) {
+    constexpr int size=38;
+    auto* buf=static_cast<lv_color16_t*>(dm_alloc(size*size*sizeof(lv_color16_t)));
+    if(!buf) return nullptr;
+    memset(buf,0,size*size*sizeof(lv_color16_t));
+    auto canvas=lv_canvas_create(parent);
+    if(!canvas){dm_release(buf);return nullptr;}
+    lv_canvas_set_buffer(canvas,buf,size,size,LV_COLOR_FORMAT_RGB565);
+    lv_obj_set_size(canvas,size,size);lv_obj_set_pos(canvas,8,4);
+    lv_obj_add_event_cb(canvas,dm_free_buffer,LV_EVENT_DELETE,buf);
+    bloub_face_cfg_t face{};face.radii=SHAPE_PROFILES[shape];face.gaze=&BLOUB_REST_GAZE;
+    face.split=BLOUB_EYE_SPLIT;face.scale=15;face.cx=face.cy=size/2.0f;face.sx=face.sy=1;face.eye_alpha=1;
+    for(int e=0;e<2;++e){face.eyes[e].w=.236f;face.eyes[e].h=.447f;face.eyes[e].open=1;}
+    bloub_draw_face(reinterpret_cast<uint16_t*>(buf),size,size,&face,lv_color_to_u16(lv_color_hex(color)),0);
+    return canvas;
+}
 int ChordHalf(int y) {
     const int dy = y - kCenter;
     const int inside = kSafeR * kSafeR - dy * dy;
@@ -337,10 +356,49 @@ void WatchUi::Show(Page page) {
     }
     case Page::CodexSettings:
         Header("ChatGPT",Page::Voice);Column();
-        Row("Chat",info_.temporary_chat?"Temporary":info_.chat.c_str(),&watch_icons::more,[this]{Show(Page::Chats);Emit(Action::Models);});
-        Row("Model",info_.model.c_str(),&watch_icons::more,[this]{model_return_=Page::CodexSettings;Show(Page::Models);Emit(Action::Models);});
+        Row("Shape",kShapeNames[std::clamp(info_.shape,0,7)],nullptr,[this]{Show(Page::Shapes);});
+        Row("Colour",kColourNames[std::clamp(info_.colour,0,10)],nullptr,[this]{Show(Page::Colours);});
         Row("Voice",info_.voice.empty()?"Default":info_.voice.c_str(),&watch_icons::mic,[this]{Show(Page::Voices);});
+        Row("Model",info_.model.c_str(),&watch_icons::more,[this]{model_return_=Page::CodexSettings;Show(Page::Models);Emit(Action::Models);});
+        Row("Chat",info_.temporary_chat?"Temporary":info_.chat.c_str(),&watch_icons::more,[this]{Show(Page::Chats);Emit(Action::Models);});
         Row("Reasoning",info_.reasoning.c_str(),&watch_icons::more,[this]{Show(Page::Reasoning);});break;
+    case Page::Shapes: {
+        Header("Shape",Page::CodexSettings);Column();
+        for(int i=0;i<8;++i){
+            Row(kShapeNames[i],info_.shape==i?"On":nullptr,nullptr,[this,i]{
+                info_.shape=i; Emit(Action::SelectShape,i); Show(Page::Shapes);
+            });
+            auto row=lv_obj_get_child(column_,lv_obj_get_child_cnt(column_)-1);
+            for(uint32_t c=0;c<lv_obj_get_child_cnt(row);++c){
+                auto child=lv_obj_get_child(row,c);
+                if(lv_obj_get_x(child)==14) lv_obj_set_x(child,54);
+            }
+            ShapePreview(row,i,info_.shape==i?0xF1EFE9:0x8E8E93);
+        }
+        break;
+    }
+    case Page::Colours: {
+        Header("Colour",Page::CodexSettings);
+        static const uint32_t colors[]={0xF1EFE9,0xA3A3A3,0x8B5E3C,0xE8483F,0xF08A24,0xF0B429,
+                                        0x3ECF8E,0x2FBFA0,0x3B93F0,0x8B5CF6,0xE152B0};
+        const int row_n[]={3,4,4}, row_y[]={176,226,276}; int at=0;
+        dm_style_t name={3,2,1,0x8E8E93,0x101010};
+        dm_text_center(shell_,180,132,kColourNames[std::clamp(info_.colour,0,10)],&name);
+        if(auto preview=ShapePreview(shell_,std::clamp(info_.shape,0,7),colors[std::clamp(info_.colour,0,10)]))
+            lv_obj_set_pos(preview,161,78);
+        for(int row=0;row<3;++row) for(int col=0;col<row_n[row];++col,++at){
+            const int cx=180+(col*54-(row_n[row]-1)*27);
+            auto swatch=Box(shell_,cx-23,row_y[row]-23,46,46,colors[at],12);
+            Click(swatch,[this,at]{info_.colour=at;Emit(Action::SelectColour,at);Show(Page::Colours);});
+            if(info_.colour==at){
+                lv_obj_set_style_border_width(swatch,2,0);
+                lv_obj_set_style_border_color(swatch,lv_color_white(),0);
+                lv_obj_set_style_outline_width(swatch,3,0);
+                lv_obj_set_style_outline_color(swatch,lv_color_black(),0);
+            }
+        }
+        break;
+    }
     case Page::Voices: {
         Header("Voice",Page::CodexSettings);Column();
         // Names come from the app-server's v1 realtime voice set, which is what

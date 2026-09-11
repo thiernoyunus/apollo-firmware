@@ -34,6 +34,8 @@ EXPECTED_TAGS = {
     "models",
     "about",
     "chatgpt",
+    "shapes",
+    "colours",
     "chatgpt_voices",
     "keyboard_open",
     "keyboard_ab",

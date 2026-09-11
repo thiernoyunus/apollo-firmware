@@ -169,6 +169,9 @@ int main() {
         {WatchUi::Page::Wifi, "wifi"},
         {WatchUi::Page::Models, "models"},
         {WatchUi::Page::About, "about"},
+        {WatchUi::Page::CodexSettings, "chatgpt"},
+        {WatchUi::Page::Shapes, "shapes"},
+        {WatchUi::Page::Colours, "colours"},
     };
     for (auto& pt : pages) { ui.Show(pt.p); tick_lv(); snap(pt.n); }
     check(screen_count() == base_screen_count, "Pages keep LVGL screen count");
