@@ -59,6 +59,7 @@ def main():
     assert re.search(
         r"if \(is_real_audio\) \{\s*"
         r"\+\+real_audio_frames;\s*"
+        r"protocol->reply_audio_received_\.store\(true\);\s*"
         r"protocol->speech_expected_since_ms_\.store\(0\);\s*"
         r"protocol->last_audio_frame_ms_\.store\(now\);",
         on_peer_audio,
@@ -68,20 +69,28 @@ def main():
     start_speaking = protocol.split(
         "void CodexVoiceProtocol::StartSpeaking()", 1)[1].split(
         "void CodexVoiceProtocol::StopSpeaking()", 1)[0]
+    assert "if (!speaking_.exchange(true))" in start_speaking
+
     assert re.search(
-        r"if \(!speaking_\.exchange\(true\)\) \{\s*"
-        r"uint32_t expected = 0;\s*"
-        r"speech_expected_since_ms_\.compare_exchange_strong\(expected, NowMilliseconds\(\)\);",
-        start_speaking,
+        r"A new user turn starts a fresh assistant reply expectation\..*?"
+        r"reply_audio_received_\.store\(false\);\s*"
+        r"speech_expected_since_ms_\.store\(0\);",
+        protocol,
         re.S,
-    ), "the watchdog must arm only when a new assistant reply starts"
+    ), "a new user turn must reset the previous reply's audio state"
 
     assistant_delta = protocol.split(
         'else if (strcmp(type->valuestring, "realtime_transcript_delta") == 0)', 1
     )[1].split(
         'else if (strcmp(type->valuestring, "realtime_transcript_done") == 0)', 1
     )[0]
-    assert "speech_expected_since_ms_.compare_exchange_strong" not in assistant_delta, (
+    assert re.search(
+        r"if \(!reply_audio_received_\.load\(\)\) \{.*?"
+        r"speech_expected_since_ms_\.compare_exchange_strong",
+        assistant_delta,
+        re.S,
+    ), "the watchdog must arm only while the reply has no real audio"
+    assert "reply_audio_received_.load()" in assistant_delta, (
         "later transcript deltas must not re-arm recovery after audio arrives"
     )
 
@@ -92,8 +101,14 @@ def main():
         re.S,
     )
     assert assistant_done, "assistant transcript completion path is missing"
-    assert "speech_expected_since_ms_.store(0)" not in assistant_done.group("body"), (
-        "transcript completion must not cancel audio recovery before audio arrives"
+    assert re.search(
+        r"if \(reply_audio_received_\.load\(\)\) \{\s*"
+        r"speech_expected_since_ms_\.store\(0\);",
+        assistant_done.group("body"),
+        re.S,
+    ), "transcript completion must clear only after real audio was received"
+    assert "Do not disarm" not in assistant_done.group("body"), (
+        "completion comments must match the conditional watchdog behavior"
     )
 
     watchdog = protocol.split(
