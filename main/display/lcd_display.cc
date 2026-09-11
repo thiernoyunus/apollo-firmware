@@ -916,6 +916,13 @@ void LcdDisplay::SetupUI() {
     auto large_icon_font = lvgl_theme->large_icon_font()->font();
 
     voice_root_ = lv_obj_create(lv_screen_active());
+    /* Black, like every other screen the character appears on. The voice screen
+     * used to be navy, which left the character sitting in a black square on a
+     * dark blue page - two different darks, and the square was the seam. */
+    lv_obj_set_style_bg_color(voice_root_, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_grad_color(voice_root_, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_grad_dir(voice_root_, LV_GRAD_DIR_NONE, 0);
+    lv_obj_set_style_bg_opa(voice_root_, LV_OPA_COVER, 0);
     lv_obj_set_size(voice_root_, 360, 360);
     lv_obj_set_pos(voice_root_, 0, 0);
     lv_obj_set_style_pad_all(voice_root_, 0, 0);
@@ -1616,7 +1623,9 @@ void LcdDisplay::RenderVoiceOrb(float seconds) {
     face.radii = SHAPE_PROFILES[SHAPE_CIRCLE];
     face.gaze = &gaze;
     face.split = BLOUB_EYE_SPLIT;
-    face.scale = static_cast<float>(size) * 0.34f;
+    /* Nearly filling its canvas: bloub's face is the whole device, not a small
+     * puck in the middle of one. */
+    face.scale = static_cast<float>(size) * 0.46f;
     face.cx = face.cy = static_cast<float>(size) * 0.5f;
     face.sx = face.sy = 1.0f;
     face.eye_alpha = 1.0f;
