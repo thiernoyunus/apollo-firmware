@@ -162,12 +162,15 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms, srmode
     }
 
     afe_config->aec_init = codec_->input_reference();
-    afe_config->aec_mode = AEC_MODE_VOIP_HIGH_PERF;
-    // ponytail: AGGR is the library default; VERYAGGR muted the mic whenever the
-    // speaker was live, which is exactly what makes barge-in impossible. Drop to
-    // NORMAL only if Apollo still cannot be talked over; NORMAL risks Apollo
-    // hearing its own voice and interrupting itself.
-    afe_config->aec_nlp_level = AEC_NLP_LEVEL_AGGR;
+    /* FD is the mode built for people talking over the device; VOIP is built
+     * for one side at a time. Being on the wrong one is why suppression had to
+     * be cranked up to stop the device hearing itself. */
+    afe_config->aec_mode = AEC_MODE_FD_HIGH_PERF;
+    /* With a real reference the canceller can do the work, so suppression does
+     * not have to paper over it. AGGR still gates a voice arriving on top of
+     * playback, which is the thing being fixed. Raise this again only if the
+     * device starts interrupting itself. */
+    afe_config->aec_nlp_level = AEC_NLP_LEVEL_NORMAL;
     afe_config->ns_init = false;
     afe_config->vad_init = kUseAfeForVoiceProcessing;
     afe_config->vad_mode = VAD_MODE_0;

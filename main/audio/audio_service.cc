@@ -261,11 +261,22 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
         codec_->EnableInput(true);
     }
 
-    if (codec_->input_sample_rate() != sample_rate) {
-        data.resize(samples * codec_->input_sample_rate() / sample_rate * codec_->input_channels());
-        if (!codec_->InputData(data)) {
-            return false;
-        }
+    const bool needs_resampling = codec_->input_sample_rate() != sample_rate;
+    data.resize(needs_resampling
+                    ? samples * codec_->input_sample_rate() / sample_rate * codec_->input_channels()
+                    : samples * codec_->input_channels());
+    if (!codec_->InputData(data)) {
+        return false;
+    }
+
+    /* Before any resampling: the reference is queued at the codec's own rate,
+     * so it has to be substituted while the buffer is still at that rate, and
+     * it then goes through the same filter as the microphone beside it. */
+    if (codec_->input_channels() == 2) {
+        reference_backlog_.store(FillReferenceChannel(data));
+    }
+
+    if (needs_resampling) {
         if (input_resampler_ != nullptr) {
             std::lock_guard<std::mutex> lock(input_resampler_mutex_);
             uint32_t in_sample_num = data.size() / codec_->input_channels();
@@ -277,11 +288,6 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
                                    (esp_ae_sample_t)resampled.data(), &actual_output);
             resampled.resize(actual_output * codec_->input_channels());
             data = std::move(resampled);
-        }
-    } else {
-        data.resize(samples * codec_->input_channels());
-        if (!codec_->InputData(data)) {
-            return false;
         }
     }
 
@@ -298,6 +304,56 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
 #endif
 
     return true;
+}
+
+/* Jitter slack only - about 40ms at the codec's rate.
+ *
+ * The queue is drained one reference sample per captured sample, so whatever
+ * sits in it is a standing offset between the reference and the echo it is
+ * meant to cancel. Sound played before capture starts - the boot chime, a
+ * cue between turns - piles up there and makes that offset permanent: measured
+ * at 2640 samples, 110ms, on the first version of this. The canceller needs the
+ * reference to arrive with the echo or slightly ahead of it, never behind, so
+ * the queue is trimmed from the front and only ever holds enough to ride out
+ * scheduling jitter. */
+static constexpr size_t kReferenceFifoMaxSamples = 24000 / 25;
+
+void AudioService::QueuePlaybackReference(const std::vector<int16_t>& pcm) {
+    if (pcm.empty() || codec_ == nullptr) {
+        return;
+    }
+    /* Substitution happens on the raw capture buffer, before it is resampled,
+     * so the reference is queued at the codec's own rate and mic and reference
+     * go through the same filter afterwards. On a board whose capture and
+     * playback rates differ this would need converting first; none ships. */
+    if (codec_->input_sample_rate() != codec_->output_sample_rate()) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(reference_mutex_);
+    reference_fifo_.insert(reference_fifo_.end(), pcm.begin(), pcm.end());
+    if (reference_fifo_.size() > kReferenceFifoMaxSamples) {
+        /* Drop from the front: the oldest samples are the most stale. */
+        reference_fifo_.erase(reference_fifo_.begin(),
+                              reference_fifo_.begin() +
+                                  (reference_fifo_.size() - kReferenceFifoMaxSamples));
+    }
+}
+
+size_t AudioService::FillReferenceChannel(std::vector<int16_t>& interleaved) {
+    /* Channel 1 of each frame is the reference. Replacing it rather than adding
+     * to it is deliberate: the electrical reference underneath is the thing
+     * that does not work. An empty queue writes silence, which is the honest
+     * answer when nothing is playing and the whole reason this beats scaling. */
+    std::lock_guard<std::mutex> lock(reference_mutex_);
+    for (size_t i = 0; i + 1 < interleaved.size(); i += 2) {
+        if (reference_fifo_.empty()) {
+            interleaved[i + 1] = 0;
+        } else {
+            interleaved[i + 1] = reference_fifo_.front();
+            reference_fifo_.pop_front();
+        }
+    }
+    return reference_fifo_.size();
 }
 
 void AudioService::AudioInputTask() {
@@ -367,12 +423,11 @@ void AudioService::AudioInputTask() {
             std::vector<int16_t> data;
             if (ReadAudioData(data, 16000, samples)) {
 #ifdef CONFIG_APOLLO_CODEX_VOICE
-                /* Echo-cancellation input check. The codec hands the AFE two
-                 * interleaved channels: the microphone, then the loopback of
-                 * what the speaker is playing. The canceller subtracts the
-                 * second from the first, so a silent or badly scaled loopback
-                 * makes it a no-op no matter how it is tuned. Printing both
-                 * peaks says which one we have. Logged once a second; remove
+                /* How the canceller's two inputs actually look. `reference`
+                 * should rise and fall with the speaker and sit at 0 in
+                 * silence; `backlog` is how many reference samples are waiting
+                 * - steadily climbing means the reference is drifting behind
+                 * the echo it is meant to cancel. Logged once a second; remove
                  * once barge-in is settled. */
                 if (codec_->input_channels() == 2) {
                     static int64_t last_reference_log = 0;
@@ -384,8 +439,10 @@ void AudioService::AudioInputTask() {
                     const int64_t now = esp_timer_get_time();
                     if (now - last_reference_log >= 1000000) {
                         last_reference_log = now;
-                        ESP_LOGI(TAG, "[DEBUG-aecin] mic=%d reference=%d speaker_active=%d",
+                        ESP_LOGI(TAG,
+                                 "[DEBUG-aecin] mic=%d reference=%d backlog=%u speaker_active=%d",
                                  mic_window, reference_window,
+                                 (unsigned)reference_backlog_.load(),
                                  now - last_loud_output_us_.load() < 1000000 ? 1 : 0);
                         mic_window = reference_window = 0;
                     }
@@ -433,6 +490,9 @@ void AudioService::AudioOutputTask() {
 #ifdef CONFIG_APOLLO_CODEX_VOICE
         output_voice_level_.store(CodexVoiceLevel(task->pcm));
 #endif
+        /* Queue before handing it over: these samples have not left the
+         * amplifier yet, so the reference runs ahead of the echo. */
+        QueuePlaybackReference(task->pcm);
         codec_->OutputData(task->pcm);
 #ifdef CONFIG_APOLLO_CODEX_VOICE
         for (int sample : task->pcm) output_peak = std::max(output_peak, sample < 0 ? -sample : sample);
@@ -851,6 +911,13 @@ void AudioService::EnableWakeWordDetection(bool enable) {
 }
 
 void AudioService::EnableVoiceProcessing(bool enable) {
+    {
+        /* Anything queued belongs to sound from before this session and would
+         * only offset the reference against the echo. */
+        std::lock_guard<std::mutex> lock(reference_mutex_);
+        reference_fifo_.clear();
+        reference_backlog_.store(0);
+    }
     ESP_LOGD(TAG, "%s voice processing", enable ? "Enabling" : "Disabling");
 
     if (enable) {

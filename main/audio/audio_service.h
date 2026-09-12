@@ -212,6 +212,29 @@ private:
     std::atomic<int> input_voice_level_{0}, output_voice_level_{0};
     // Last time real speech (not silence padding) went to the speaker.
     std::atomic<int64_t> last_loud_output_us_{0};
+
+    /* Echo-cancellation reference.
+     *
+     * The board has a real one - an ADC channel wired to the amplifier - and it
+     * is correctly wired and correctly timed, but it arrives about 1000x
+     * quieter than the echo the microphone picks up from that same speaker, and
+     * the codec is already at 30dB with 7.5dB of headroom. Scaling it in
+     * software was tried and made things worse: its own noise floor scaled with
+     * it, so the canceller saw permanent "speaker is playing" and gated the
+     * microphone even in silence.
+     *
+     * So the reference is built from the audio we are about to play instead.
+     * That copy is full-scale, noise-free, and - the point - exactly zero when
+     * nothing is playing, which is what the electrical one could never be.
+     * Samples are queued as they go to the speaker, so they run ahead of the
+     * sound reaching the microphone by the amplifier and air delay, which is
+     * the direction an adaptive canceller needs.
+     */
+    std::mutex reference_mutex_;
+    std::deque<int16_t> reference_fifo_;
+    std::atomic<size_t> reference_backlog_{0};
+    void QueuePlaybackReference(const std::vector<int16_t>& pcm);
+    size_t FillReferenceChannel(std::vector<int16_t>& interleaved);
 #endif
     uint32_t microphone_generation_ = 0;
     // For server AEC
