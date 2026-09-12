@@ -12,6 +12,10 @@
 
 #include "bloub_shapes.h"
 
+/* M_PI is POSIX, not ISO C: a strict -std=c99 build gets <math.h> without it.
+ * This check is meant to run anywhere with a C compiler, so it brings its own. */
+#define CHECK_PI 3.14159265358979323846
+
 #define W 200
 #define H 200
 static uint16_t buf[W * H];
@@ -55,7 +59,7 @@ int main(void) {
     for (int i = 0; i < W * H; i++) buf[i] = BG;
     bloub_fill_shape(buf, W, H, SHAPE_PROFILES[SHAPE_CIRCLE], 50.0f, 100.0f, 100.0f, BODY);
     const int filled = count_body();
-    const double expected = M_PI * 50.0 * 50.0;
+    const double expected = CHECK_PI * 50.0 * 50.0;
     assert(filled > 0);
     assert(fabs(filled - expected) / expected < 0.03);
     for (int y = 0; y < H; y++) {
@@ -70,7 +74,7 @@ int main(void) {
     bloub_punch_eye(buf, W, H, 100.0f, 100.0f, 20.0f, 20.0f, 0.0f, BG);
     const int after = count_body();
     const int removed = filled - after;
-    const double capsule = M_PI * 10.0 * 10.0;   /* a 20x20 capsule is a disc */
+    const double capsule = CHECK_PI * 10.0 * 10.0;   /* a 20x20 capsule is a disc */
     assert(removed > capsule * 0.9 && removed < capsule * 1.1);
 
     /* 4. Punching the same eye twice changes nothing, and an eye that lands
