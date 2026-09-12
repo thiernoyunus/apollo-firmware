@@ -300,6 +300,12 @@ void CodexVoiceProtocol::CloseAudioChannel(bool send_goodbye) {
     closing_ = true;
     channel_open_ = false;
     speaking_ = false;
+    /* One protocol object serves every call. A call that ends mid-reply would
+     * otherwise leave half a sentence here for the next one to append to and
+     * caption. */
+    transcript_partial_.clear();
+    transcript_role_.clear();
+    transcript_emitted_at_ = 0;
     speech_expected_since_ms_.store(0);
 
     if (send_goodbye && websocket_ != nullptr && websocket_->IsConnected() &&
@@ -674,6 +680,10 @@ constexpr size_t kTranscriptTailChars = 18;
 // Redrawing on every token would repaint the screen faster than it can be
 // read. Six times a second keeps up with speech.
 constexpr uint32_t kTranscriptStreamMs = 160;
+// The most of a reply-in-progress worth holding on to. Several times the tail
+// that is shown, so trimming never eats into the words being displayed, and
+// far short of what an endless stream of deltas could otherwise accumulate.
+constexpr size_t kTranscriptKeepBytes = 256;
 
 /* The last words of `text`, cut at a space where there is one, and never
  * through the middle of a multi-byte character. */
@@ -702,6 +712,18 @@ void CodexVoiceProtocol::StreamTranscript(const char* role, const char* delta) {
         transcript_emitted_at_ = 0;
     }
     transcript_partial_ += delta;
+    /* Only the tail is ever shown, and a peer that never sends a completion
+     * event would otherwise grow this without limit. Keep a few tails' worth
+     * so a long word cannot be cut into by the trim itself, and cut on a UTF-8
+     * boundary so a multi-byte character is never halved. */
+    if (transcript_partial_.size() > kTranscriptKeepBytes) {
+        size_t cut = transcript_partial_.size() - kTranscriptKeepBytes;
+        while (cut < transcript_partial_.size() &&
+               (static_cast<unsigned char>(transcript_partial_[cut]) & 0xC0) == 0x80) {
+            ++cut;
+        }
+        transcript_partial_.erase(0, cut);
+    }
     const uint32_t now = NowMilliseconds();
     if (transcript_emitted_at_ != 0 && now - transcript_emitted_at_ < kTranscriptStreamMs) return;
     transcript_emitted_at_ = now;

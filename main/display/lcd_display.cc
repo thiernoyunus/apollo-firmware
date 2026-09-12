@@ -1661,9 +1661,13 @@ void LcdDisplay::UpdateVoiceStateCaption(const char* text, uint32_t color) {
 void LcdDisplay::SetVoiceActivity(const char* activity, const char* icon, const char* pixels) {
     DisplayLockGuard lock(this);
     if (voice_root_ == nullptr) return;
-    ClearVoiceToolCaption();
+    /* Nothing is torn down before the hold decision below: the branch that
+     * keeps a just-announced tool on screen does so by leaving it alone, and
+     * clearing up here deleted the very caption it was protecting - an empty
+     * slot for the whole 1.5s, since the state word stays hidden behind it. */
     if (activity == nullptr || activity[0] == '\0' || strcmp(activity, "Listening") == 0) {
         ReleaseVoiceToolHold();
+        ClearVoiceToolCaption();
         voice_tool_active_ = false;
         voice_working_ = false;
         ShowVoiceToolCaption(false);
@@ -1691,7 +1695,10 @@ void LcdDisplay::SetVoiceActivity(const char* activity, const char* icon, const 
             }
         }
     }
+    /* Past the hold: whatever was up is either being replaced or is going
+     * away, so now it can go. */
     ReleaseVoiceToolHold();
+    ClearVoiceToolCaption();
     /* Only a named tool takes the slot: plain "Thinking" is already the state
      * word, and saying it twice on one screen reads as a stutter. */
     voice_tool_active_ = named_tool;

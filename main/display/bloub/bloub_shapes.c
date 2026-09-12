@@ -116,9 +116,18 @@ void bloub_punch_eye_posed(uint16_t* buf, int w, int h, float cx, float cy, floa
     const float ix = hw - rr, iy = hh - rr;
 
     /* Only the eye's own bounding box is touched: an eye is a few hundred
-     * pixels, the body it sits in a few thousand. */
-    const float ex = (fabsf(a) * hw + fabsf(c) * hh) / fabsf(det);
-    const float ey = (fabsf(b) * hw + fabsf(d) * hh) / fabsf(det);
+     * pixels, the body it sits in a few thousand.
+     *
+     * The box comes from the FORWARD transform - the frame maps eye space to
+     * screen as (dx, dy) = (a*u + b*v, c*u + d*v), so the widest the eye can
+     * reach is |a|*hw + |b|*hh across and |c|*hw + |d|*hh down. Dividing by
+     * det instead inverted the relationship: as an eye turns edge-on and det
+     * falls towards zero the box grew without bound, and at the shallowest
+     * angle still drawn it was scanning most of the canvas for an eye two
+     * pixels wide. The orbit animation turns the head far enough to reach
+     * exactly those poses. */
+    const float ex = fabsf(a) * hw + fabsf(b) * hh;
+    const float ey = fabsf(c) * hw + fabsf(d) * hh;
     int x0 = (int)floorf(cx - ex), x1 = (int)ceilf(cx + ex);
     int y0 = (int)floorf(cy - ey), y1 = (int)ceilf(cy + ey);
     if (x0 < 0) x0 = 0;
