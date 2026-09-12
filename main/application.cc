@@ -246,8 +246,14 @@ void Application::Run() {
             if (reopen) {
                 ESP_LOGW(TAG, "Reply audio stalled; reopening the call");
                 // Idle is the state HandleToggleChatEvent opens a call from,
-                // and it is the state we just landed in.
-                Schedule([this]() { HandleToggleChatEvent(); });
+                // and it is the state we just landed in. The flag is checked
+                // again inside: this runs a loop pass later, the UI task can
+                // hang up in between, and HandleToggleChatEvent clears it.
+                Schedule([this]() {
+                    if (!call_end_requested_.load()) {
+                        HandleToggleChatEvent();
+                    }
+                });
             } else {
                 Alert(Lang::Strings::ERROR, last_error_message_.c_str(), "cancel",
                       Lang::Sounds::OGG_EXCLAMATION);
