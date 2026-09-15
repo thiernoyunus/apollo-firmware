@@ -376,26 +376,6 @@ def _wake_word_sdkconfig_options(
 
 _BOARDS_DIR = Path("main/boards")
 
-_DISPLAY_STYLE_SYMBOLS = {
-    "default": "CONFIG_USE_DEFAULT_MESSAGE_STYLE",
-    "wechat": "CONFIG_USE_WECHAT_MESSAGE_STYLE",
-    "emote": "CONFIG_USE_EMOTE_MESSAGE_STYLE",
-}
-_DYNAMIC_CAMERA_MIRROR_BOARD_CONFIGS = {
-    # These boards intentionally change orientation at runtime according to the
-    # detected sensor or persisted device state. A compile-time override would
-    # be misleading because that runtime decision would win afterwards.
-    "CONFIG_BOARD_TYPE_DF_S3_AI_CAM",
-    "CONFIG_BOARD_TYPE_ESP_SPARKBOT",
-    "CONFIG_BOARD_TYPE_M5STACK_ATOM_S3R_CAM_M12_ECHO_BASE",
-    "CONFIG_BOARD_TYPE_SEEED_STUDIO_SENSECAP_WATCHER",
-}
-_OPTIONAL_CAMERA_ENABLE_SYMBOLS = {
-    # ESP-VOCAT only constructs EspVideo when its optional USB UVC transport
-    # is enabled. Do not advertise mirror controls for the camera-less default
-    # build, but expose them automatically for an explicitly enabled variant.
-    "CONFIG_BOARD_TYPE_ESP_VOCAT": "CONFIG_ESP_VIDEO_ENABLE_USB_UVC_VIDEO_DEVICE",
-}
 
 
 def _sdkconfig_assignments(options: list[str]) -> dict[str, str]:
@@ -514,36 +494,13 @@ def _build_option_definitions(
         })
         break
 
-    # Message styles are implemented by the color LCD display path. OLED and
-    # no-display boards deliberately do not expose a selector that has no effect.
+    # There is one display style, so only the multiline toggle is selectable.
     if re.search(r"\b[A-Za-z0-9_]*LcdDisplay\b", source):
-        style_choice = _kconfig_choice("DISPLAY_STYLE")
-        emote_boards = _kconfig_config_board_dependencies("USE_EMOTE_MESSAGE_STYLE")
-        style_choices = [
-            {"value": "default", "label": "Default"},
-            {"value": "wechat", "label": "WeChat"},
-        ]
-        if board_config in emote_boards:
-            style_choices.append({"value": "emote", "label": "Emote animation"})
-        style_default = "default"
-        selected_style = _selected_choice_default(style_choice, assignments)
-        for value, symbol in _DISPLAY_STYLE_SYMBOLS.items():
-            if symbol == f"CONFIG_{selected_style}":
-                style_default = value
-                break
-        definitions.extend((
-            {
-                "key": "display_style",
-                "type": "select",
-                "default": style_default,
-                "choices": style_choices,
-            },
-            {
-                "key": "multiline_chat",
-                "type": "boolean",
-                "default": assignments.get("CONFIG_USE_MULTILINE_CHAT_MESSAGE") == "y",
-            },
-        ))
+        definitions.append({
+            "key": "multiline_chat",
+            "type": "boolean",
+            "default": assignments.get("CONFIG_USE_MULTILINE_CHAT_MESSAGE") == "y",
+        })
 
     aec_boards = _kconfig_config_board_dependencies("USE_DEVICE_AEC")
     if board_config in aec_boards:
@@ -556,38 +513,6 @@ def _build_option_definitions(
                 {"value": "device", "label": "Device-side AEC"},
             ],
         })
-
-    # ESP32-P4 obtains networking through a companion chip and cannot enable
-    # the local ESP-BluFi stack selected by this project option.
-    if target != "esp32p4" and ("wifi_board.h" in source or re.search(r"\bWifiBoard\b", source)):
-        definitions.append({
-            "key": "wifi_provisioning",
-            "type": "select",
-            "default": (
-                "blufi"
-                if assignments.get("CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING") == "y"
-                and assignments.get("CONFIG_USE_HOTSPOT_WIFI_PROVISIONING") == "n"
-                else "hotspot"
-            ),
-            "choices": [
-                {"value": "hotspot", "label": "Wi-Fi hotspot"},
-                {"value": "blufi", "label": "ESP-BluFi"},
-            ],
-        })
-
-    camera_enable_symbol = _OPTIONAL_CAMERA_ENABLE_SYMBOLS.get(board_config)
-    has_common_camera = (
-        ("new Esp32Camera" in source or "new EspVideo" in source)
-        and (
-            camera_enable_symbol is None
-            or assignments.get(camera_enable_symbol) == "y"
-        )
-    )
-    if has_common_camera and board_config not in _DYNAMIC_CAMERA_MIRROR_BOARD_CONFIGS:
-        definitions.extend((
-            {"key": "camera_hmirror", "type": "boolean", "default": False},
-            {"key": "camera_vflip", "type": "boolean", "default": False},
-        ))
 
     configured_defaults = build.get("build_options", {})
     if not isinstance(configured_defaults, dict):
@@ -632,9 +557,6 @@ def _normalize_build_options(
                     f"Build option {key} must be one of: {', '.join(sorted(allowed))}"
                 )
         normalized[key] = value
-
-    if normalized.get("display_style") != "default" and "multiline_chat" in normalized:
-        normalized["multiline_chat"] = False
     return normalized
 
 
@@ -657,29 +579,6 @@ def _build_options_sdkconfig(
             # sibling in the Kconfig choice and must be disabled explicitly.
             result.append("CONFIG_LCD_CUSTOM=n")
 
-    if "display_style" in options:
-        selected = options["display_style"]
-        for choice in by_key["display_style"]["choices"]:
-            value = choice["value"]
-            symbol = _DISPLAY_STYLE_SYMBOLS[value]
-            result.append(f"{symbol}={'y' if value == selected else 'n'}")
-        flash_symbols = (
-            "CONFIG_FLASH_NONE_ASSETS",
-            "CONFIG_FLASH_DEFAULT_ASSETS",
-            "CONFIG_FLASH_CUSTOM_ASSETS",
-            "CONFIG_FLASH_EXPRESSION_ASSETS",
-        )
-        if selected == "emote" and base_assignments.get("CONFIG_FLASH_CUSTOM_ASSETS") != "y":
-            result.extend(
-                f"{symbol}={'y' if symbol == 'CONFIG_FLASH_EXPRESSION_ASSETS' else 'n'}"
-                for symbol in flash_symbols
-            )
-        elif selected != "emote" and base_assignments.get("CONFIG_FLASH_EXPRESSION_ASSETS") == "y":
-            result.extend(
-                f"{symbol}={'y' if symbol == 'CONFIG_FLASH_DEFAULT_ASSETS' else 'n'}"
-                for symbol in flash_symbols
-            )
-
     if "multiline_chat" in options:
         result.append(f"CONFIG_USE_MULTILINE_CHAT_MESSAGE={'y' if options['multiline_chat'] else 'n'}")
 
@@ -692,19 +591,6 @@ def _build_options_sdkconfig(
         if device:
             result.append("CONFIG_USE_AUDIO_PROCESSOR=y")
 
-    if "wifi_provisioning" in options:
-        blufi = options["wifi_provisioning"] == "blufi"
-        result.extend((
-            f"CONFIG_USE_HOTSPOT_WIFI_PROVISIONING={'n' if blufi else 'y'}",
-            f"CONFIG_USE_ESP_BLUFI_WIFI_PROVISIONING={'y' if blufi else 'n'}",
-        ))
-
-    if "camera_hmirror" in options or "camera_vflip" in options:
-        result.extend((
-            "CONFIG_XIAOZHI_CAMERA_MIRROR_CONFIGURED=y",
-            f"CONFIG_XIAOZHI_CAMERA_HMIRROR={'y' if options.get('camera_hmirror') else 'n'}",
-            f"CONFIG_XIAOZHI_CAMERA_VFLIP={'y' if options.get('camera_vflip') else 'n'}",
-        ))
     return result
 
 

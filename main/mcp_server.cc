@@ -12,7 +12,6 @@
 
 #include "application.h"
 #include "display.h"
-#include "oled_display.h"
 #include "board.h"
 #include "settings.h"
 #include "lvgl_theme.h"
@@ -77,7 +76,6 @@ void McpServer::AddCommonTools() {
             });
     }
 
-#ifdef HAVE_LVGL
     auto display = board.GetDisplay();
     if (display && display->GetTheme() != nullptr) {
         AddTool("self.screen.set_theme",
@@ -96,30 +94,6 @@ void McpServer::AddCommonTools() {
                 return false;
             });
     }
-
-    auto camera = board.GetCamera();
-    if (camera) {
-        AddTool("self.camera.take_photo",
-            "Always remember you have a camera. If the user asks you to see something, use this tool to take a photo and then explain it.\n"
-            "Args:\n"
-            "  `question`: The question that you want to ask about the photo.\n"
-            "Return:\n"
-            "  A JSON object that provides the photo information.",
-            PropertyList({
-                Property("question", kPropertyTypeString)
-            }),
-            [camera](const PropertyList& properties) -> ReturnValue {
-                // Lower the priority to do the camera capture
-                TaskPriorityReset priority_reset(1);
-
-                if (!camera->Capture()) {
-                    throw std::runtime_error("Failed to capture photo");
-                }
-                auto question = properties["question"].value<std::string>();
-                return camera->Explain(question);
-            });
-    }
-#endif
 
     // Restore the original tools list to the end of the tools list
     tools_.insert(tools_.end(), original_tools.begin(), original_tools.end());
@@ -183,7 +157,6 @@ void McpServer::AddUserOnlyTools() {
             return new ImageContent("image/jpeg", jpeg_data);
         });
 
-#ifdef HAVE_LVGL
     auto lvgl_display = dynamic_cast<LvglDisplay*>(display);
     if (lvgl_display) {
         AddUserOnlyTool("self.screen.get_info", "Information about the screen, including width, height, etc.",
@@ -192,11 +165,7 @@ void McpServer::AddUserOnlyTools() {
                 cJSON *json = cJSON_CreateObject();
                 cJSON_AddNumberToObject(json, "width", lvgl_display->width());
                 cJSON_AddNumberToObject(json, "height", lvgl_display->height());
-                if (dynamic_cast<OledDisplay*>(lvgl_display)) {
-                    cJSON_AddBoolToObject(json, "monochrome", true);
-                } else {
-                    cJSON_AddBoolToObject(json, "monochrome", false);
-                }
+                cJSON_AddBoolToObject(json, "monochrome", false);
                 return json;
             });
 
@@ -296,7 +265,6 @@ void McpServer::AddUserOnlyTools() {
             });
 #endif // CONFIG_LV_USE_SNAPSHOT
     }
-#endif // HAVE_LVGL
 
     // Assets download url (always registered — Settings storage works regardless of partition layout)
     AddUserOnlyTool("self.assets.set_download_url", "Set the download url for the assets",
@@ -342,25 +310,6 @@ void McpServer::ParseMessage(const std::string& message) {
     cJSON_Delete(json);
 }
 
-void McpServer::ParseCapabilities(const cJSON* capabilities) {
-    auto vision = cJSON_GetObjectItem(capabilities, "vision");
-    if (cJSON_IsObject(vision)) {
-        auto url = cJSON_GetObjectItem(vision, "url");
-        auto token = cJSON_GetObjectItem(vision, "token");
-        if (cJSON_IsString(url)) {
-            auto camera = Board::GetInstance().GetCamera();
-            if (camera) {
-                std::string url_str = std::string(url->valuestring);
-                std::string token_str;
-                if (cJSON_IsString(token)) {
-                    token_str = std::string(token->valuestring);
-                }
-                camera->SetExplainUrl(url_str, token_str);
-            }
-        }
-    }
-}
-
 void McpServer::ParseMessage(const cJSON* json) {
     // Check JSONRPC version
     auto version = cJSON_GetObjectItem(json, "jsonrpc");
@@ -396,12 +345,6 @@ void McpServer::ParseMessage(const cJSON* json) {
     auto id_int = id->valueint;
     
     if (method_str == "initialize") {
-        if (cJSON_IsObject(params)) {
-            auto capabilities = cJSON_GetObjectItem(params, "capabilities");
-            if (cJSON_IsObject(capabilities)) {
-                ParseCapabilities(capabilities);
-            }
-        }
         auto app_desc = esp_app_get_description();
         std::string message = "{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"" BOARD_NAME "\",\"version\":\"";
         message += app_desc->version;

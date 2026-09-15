@@ -83,8 +83,7 @@ config OTA_URL
 
 choice
     prompt "Flash Assets"
-    default FLASH_DEFAULT_ASSETS if !USE_EMOTE_MESSAGE_STYLE
-    default FLASH_EXPRESSION_ASSETS if USE_EMOTE_MESSAGE_STYLE
+    default FLASH_DEFAULT_ASSETS
     help
         Select the assets to flash.
 
@@ -92,12 +91,8 @@ choice
         bool "Do not flash assets"
     config FLASH_DEFAULT_ASSETS
         bool "Flash Default Assets"
-        depends on !USE_EMOTE_MESSAGE_STYLE
     config FLASH_CUSTOM_ASSETS
         bool "Flash Custom Assets"
-    config FLASH_EXPRESSION_ASSETS
-        bool "Flash Emote Assets"
-        depends on USE_EMOTE_MESSAGE_STYLE
 endchoice
 
 config CUSTOM_ASSETS_FILE
@@ -144,23 +139,9 @@ choice DISPLAY_ESP32S3_TOUCH_LCD_1_85C
 endchoice
 
 
-choice DISPLAY_STYLE
-    prompt "Select display style"
-    default USE_DEFAULT_MESSAGE_STYLE
-    help
-        Select display style for Xiaozhi device
-
-    config USE_DEFAULT_MESSAGE_STYLE
-        bool "Enable default message style"
-
-    config USE_WECHAT_MESSAGE_STYLE
-        bool "Enable WeChat Message Style"
-        depends on !APOLLO_CODEX_VOICE
-
-    config USE_EMOTE_MESSAGE_STYLE
-        bool "Emote animation style"
-        depends on BOARD_TYPE_WAVESHARE_ESP32_S3_TOUCH_LCD_1_85C && !APOLLO_CODEX_VOICE
-endchoice
+config USE_DEFAULT_MESSAGE_STYLE
+    bool
+    default y
 
 config USE_MULTILINE_CHAT_MESSAGE
     bool "Use multiline chat message display (default mode only)"
@@ -308,23 +289,9 @@ config USE_AUDIO_DEBUGGER
     help
         Enable audio debugger, send audio data through UDP to the host machine
 
-menu "WiFi Configuration Method"
-    help
-        WiFi Configuration Method Selection
-    config USE_HOTSPOT_WIFI_PROVISIONING
-        bool "Hotspot"
-        default y
-        help
-            Use WiFi Hotspot to transmit WiFi configuration data
-    config USE_ESP_BLUFI_WIFI_PROVISIONING
-        bool "ESP-BluFi"
-        select BT_ENABLED
-        select BT_BLE_42_FEATURES_SUPPORTED
-        select BT_BLE_BLUFI_ENABLE
-        help
-            Use the PSA Crypto based BluFi security protocol adopted by ESP-IDF 6.
-            The provisioning client must support ffdhe3072, SHA-256, and AES-CTR.
-endmenu
+config USE_HOTSPOT_WIFI_PROVISIONING
+    bool
+    default y
 
 config AUDIO_DEBUG_UDP_SERVER
     string "Audio Debug UDP Server Address"
